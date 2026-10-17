@@ -12,9 +12,9 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/google/uuid"
 	http "github.com/igor-lemon/fhttp"
 	tls_client_cffi_src "github.com/igor-lemon/tls-client/cffi_src"
-	"github.com/google/uuid"
 )
 
 var (

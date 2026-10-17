@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	quic "github.com/igor-lemon/quic-go-utls"
 	tls "github.com/bogdanfinn/utls"
+	quic "github.com/igor-lemon/quic-go-utls"
 )
 
 const (

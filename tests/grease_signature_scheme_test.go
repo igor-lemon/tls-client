@@ -3,8 +3,8 @@ package tests
 import (
 	"testing"
 
-	"github.com/igor-lemon/tls-client/profiles"
 	tls "github.com/bogdanfinn/utls"
+	"github.com/igor-lemon/tls-client/profiles"
 )
 
 // greaseSignatureSchemeProfiles are the profiles that send a GREASE value as

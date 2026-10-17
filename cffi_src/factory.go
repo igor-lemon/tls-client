@@ -14,12 +14,12 @@ import (
 	"github.com/igor-lemon/tls-client/profiles"
 	"golang.org/x/net/html/charset"
 
+	tls "github.com/bogdanfinn/utls"
+	"github.com/google/uuid"
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/cookiejar"
 	"github.com/igor-lemon/fhttp/http2"
 	tls_client "github.com/igor-lemon/tls-client"
-	tls "github.com/bogdanfinn/utls"
-	"github.com/google/uuid"
 )
 
 var clientsLock = sync.Mutex{}
