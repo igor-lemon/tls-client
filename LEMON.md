@@ -16,5 +16,17 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
         xargs perl -pi -e 's#github\.com/bogdanfinn/(fhttp|tls-client|quic-go-utls|websocket)\b#github.com/igor-lemon/$1#g'
 
   then `git diff --name-only -- '*.go' | xargs gofmt -w`, which puts the
-  renamed imports back in order, `go mod edit -require=` each fork at its version, and `go mod tidy`.
+  renamed imports back in order, `go mod edit -require=` each fork at its
+  version, and `go mod tidy`.
 - At the base, `go vet` flags unkeyed fields in `profiles`, upstream as here.
+
+## Patches
+
+- **A profile says how it writes headers into HPACK**
+  (`profiles.ClientProfile.WithHeaderRepresentation`,
+  `GetHeaderRepresentation`), which the round tripper gives its HTTP/2
+  transport (fhttp's `http2.Transport.HeaderRepresentation`). Unset, as every
+  catalogue profile is, headers are written as before. tls-forge sets it for
+  Chromium. Tests in `representation_test.go` and
+  `profiles/representation_test.go`; that the transport writes as told is
+  held end to end in tls-forge.
