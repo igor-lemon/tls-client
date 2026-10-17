@@ -12,11 +12,11 @@ import (
 	"io"
 	"log"
 
-	http "github.com/bogdanfinn/fhttp"
-	"github.com/bogdanfinn/fhttp/http2"
-	tls_client "github.com/bogdanfinn/tls-client"
-	"github.com/bogdanfinn/tls-client/profiles"
-	tls "github.com/bogdanfinn/utls"
+	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/fhttp/http2"
+	tls_client "github.com/igor-lemon/tls-client"
+	"github.com/igor-lemon/tls-client/profiles"
+	tls "github.com/igor-lemon/utls"
 )
 
 // specFactory is called once per ClientHello, so anything that has to stay

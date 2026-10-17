@@ -1,7 +1,7 @@
 // Package main verifies that a client reuses one TCP connection for
 // subsequent requests to the same host, instead of dialing and handshaking
 // again every time. That is the behaviour questioned in
-// https://github.com/bogdanfinn/tls-client/issues/112.
+// https://github.com/igor-lemon/tls-client/issues/112.
 //
 // The check does not rely on timings. It counts the actual TCP dials through a
 // wrapping dialer and cross-checks that against httptrace, which reports per
@@ -41,10 +41,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	http "github.com/bogdanfinn/fhttp"
-	"github.com/bogdanfinn/fhttp/httptrace"
-	tls_client "github.com/bogdanfinn/tls-client"
-	"github.com/bogdanfinn/tls-client/profiles"
+	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/fhttp/httptrace"
+	tls_client "github.com/igor-lemon/tls-client"
+	"github.com/igor-lemon/tls-client/profiles"
 )
 
 type scenario struct {

@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	http "github.com/bogdanfinn/fhttp"
-	"github.com/bogdanfinn/fhttp/httptest"
-	tls_client "github.com/bogdanfinn/tls-client"
-	"github.com/bogdanfinn/tls-client/profiles"
-	tls "github.com/bogdanfinn/utls"
+	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/fhttp/httptest"
+	tls_client "github.com/igor-lemon/tls-client"
+	"github.com/igor-lemon/tls-client/profiles"
+	tls "github.com/igor-lemon/utls"
 	"github.com/stretchr/testify/assert"
 )
 

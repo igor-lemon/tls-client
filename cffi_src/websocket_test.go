@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	http "github.com/bogdanfinn/fhttp"
-	"github.com/bogdanfinn/fhttp/httptest"
-	"github.com/bogdanfinn/websocket"
+	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/fhttp/httptest"
+	"github.com/igor-lemon/websocket"
 	"github.com/stretchr/testify/require"
 )
 

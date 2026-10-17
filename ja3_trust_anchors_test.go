@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tls "github.com/bogdanfinn/utls"
+	tls "github.com/igor-lemon/utls"
 )
 
 // A Chrome 152 capture, shortened to four anchors. The payload starts with the

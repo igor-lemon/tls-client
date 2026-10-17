@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 
-	http "github.com/bogdanfinn/fhttp"
-	tls_client "github.com/bogdanfinn/tls-client"
-	"github.com/bogdanfinn/tls-client/profiles"
+	http "github.com/igor-lemon/fhttp"
+	tls_client "github.com/igor-lemon/tls-client"
+	"github.com/igor-lemon/tls-client/profiles"
 )
 
 func main() {

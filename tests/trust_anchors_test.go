@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bogdanfinn/tls-client/trust_anchors"
+	"github.com/igor-lemon/tls-client/trust_anchors"
 )
 
 // TestSort checks that the IDs decide the order, not the records

@@ -18,8 +18,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	http "github.com/bogdanfinn/fhttp"
-	"github.com/bogdanfinn/websocket"
+	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/websocket"
 	"github.com/stretchr/testify/require"
 )
 
