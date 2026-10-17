@@ -15,5 +15,6 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
       grep -rlE 'github\.com/bogdanfinn/(fhttp|tls-client|quic-go-utls|websocket)' --include='*.go' --include=go.mod . |
         xargs perl -pi -e 's#github\.com/bogdanfinn/(fhttp|tls-client|quic-go-utls|websocket)\b#github.com/igor-lemon/$1#g'
 
-  then `go mod edit -require=` each fork at its version, and `go mod tidy`.
+  then `git diff --name-only -- '*.go' | xargs gofmt -w`, which puts the
+  renamed imports back in order, `go mod edit -require=` each fork at its version, and `go mod tidy`.
 - At the base, `go vet` flags unkeyed fields in `profiles`, upstream as here.
