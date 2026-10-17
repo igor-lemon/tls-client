@@ -13,6 +13,7 @@ import (
 	tls "github.com/bogdanfinn/utls"
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/http2"
+	"github.com/igor-lemon/fhttp/http2/hpack"
 	"github.com/igor-lemon/quic-go-utls/http3"
 	"github.com/igor-lemon/tls-client/bandwidth"
 	"github.com/igor-lemon/tls-client/profiles"
@@ -57,13 +58,14 @@ type roundTripper struct {
 	cachedKinds    map[string]transportKind
 	cachedKindsLck sync.Mutex
 
-	headerPriority      *http2.PriorityParam
-	settings            map[http2.SettingID]uint32
-	transportOptions    *TransportOptions
-	serverNameOverwrite string
-	priorities          []http2.Priority
-	pseudoHeaderOrder   []string
-	settingsOrder       []http2.SettingID
+	headerPriority       *http2.PriorityParam
+	headerRepresentation func(hpack.HeaderField) hpack.Representation
+	settings             map[http2.SettingID]uint32
+	transportOptions     *TransportOptions
+	serverNameOverwrite  string
+	priorities           []http2.Priority
+	pseudoHeaderOrder    []string
+	settingsOrder        []http2.SettingID
 	sync.Mutex
 
 	cachedTransportsLck sync.Mutex
@@ -479,8 +481,10 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 			ConnectionFlow:  rt.connectionFlow,
 			HeaderPriority:  rt.headerPriority,
 			IdleConnTimeout: idleConnectionTimeout,
-			InitialStreamID: rt.initialStreamID,
-			AllowHTTP:       rt.allowHTTP,
+
+			HeaderRepresentation: rt.headerRepresentation,
+			InitialStreamID:      rt.initialStreamID,
+			AllowHTTP:            rt.allowHTTP,
 		}
 
 		if rt.transportOptions != nil {
@@ -706,6 +710,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		settingsOrder:               clientProfile.GetSettingsOrder(),
 		priorities:                  clientProfile.GetPriorities(),
 		headerPriority:              clientProfile.GetHeaderPriority(),
+		headerRepresentation:        clientProfile.GetHeaderRepresentation(),
 		pseudoHeaderOrder:           clientProfile.GetPseudoHeaderOrder(),
 		insecureSkipVerify:          insecureSkipVerify,
 		forceHttp1:                  forceHttp1,
