@@ -1,8 +1,8 @@
 package tests
 
 import (
-	tls_client "github.com/bogdanfinn/tls-client"
-	"github.com/bogdanfinn/tls-client/profiles"
+	tls_client "github.com/igor-lemon/tls-client"
+	"github.com/igor-lemon/tls-client/profiles"
 	tls "github.com/bogdanfinn/utls"
 )
 

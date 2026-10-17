@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	http "github.com/bogdanfinn/fhttp"
-	"github.com/bogdanfinn/fhttp/http2"
-	"github.com/bogdanfinn/tls-client/bandwidth"
+	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/fhttp/http2"
+	"github.com/igor-lemon/tls-client/bandwidth"
 	tls "github.com/bogdanfinn/utls"
 )
 

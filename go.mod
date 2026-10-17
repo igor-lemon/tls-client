@@ -1,14 +1,14 @@
-module github.com/bogdanfinn/tls-client
+module github.com/igor-lemon/tls-client
 
 go 1.24.1
 
 require (
 	github.com/bdandy/go-socks4 v1.2.3
-	github.com/bogdanfinn/fhttp v0.6.9
-	github.com/bogdanfinn/quic-go-utls v1.0.10-utls
 	github.com/bogdanfinn/utls v1.7.8-barnius
-	github.com/bogdanfinn/websocket v1.5.6-barnius
 	github.com/google/uuid v1.6.0
+	github.com/igor-lemon/fhttp v0.6.10-0.20261017214052-a61392fc6180
+	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261017214247-78a192584480
+	github.com/igor-lemon/websocket v1.5.6-barnius.0.20261017214157-072d961e5121
 	github.com/stretchr/testify v1.11.1
 	github.com/tam7t/hpkp v0.0.0-20160821193359-2b70b4024ed5
 	golang.org/x/net v0.48.0
@@ -31,8 +31,8 @@ require (
 
 //replace github.com/bogdanfinn/utls => ../utls
 
-//replace github.com/bogdanfinn/quic-go-utls => ../quic-go-utls
+//replace github.com/igor-lemon/quic-go-utls => ../quic-go-utls
 
-//replace github.com/bogdanfinn/websocket => ../websocket
+//replace github.com/igor-lemon/websocket => ../websocket
 
-//replace github.com/bogdanfinn/fhttp => ../fhttp
+//replace github.com/igor-lemon/fhttp => ../fhttp

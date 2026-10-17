@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	http "github.com/bogdanfinn/fhttp"
-	"github.com/bogdanfinn/fhttp/httptest"
+	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/fhttp/httptest"
 )
 
 // TestBuildResponse_IsByteResponse_NonEmptyBody guards against the regression

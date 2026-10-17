@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/bogdanfinn/tls-client/profiles"
+	"github.com/igor-lemon/tls-client/profiles"
 	tls "github.com/bogdanfinn/utls"
 )
 

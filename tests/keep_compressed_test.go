@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	http "github.com/bogdanfinn/fhttp"
-	"github.com/bogdanfinn/fhttp/httptest"
-	tls_client "github.com/bogdanfinn/tls-client"
+	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/fhttp/httptest"
+	tls_client "github.com/igor-lemon/tls-client"
 	"github.com/stretchr/testify/assert"
 )
 

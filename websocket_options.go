@@ -3,7 +3,7 @@ package tls_client
 import (
 	"time"
 
-	http "github.com/bogdanfinn/fhttp"
+	http "github.com/igor-lemon/fhttp"
 )
 
 type WebsocketOption func(config *websocketConfig)

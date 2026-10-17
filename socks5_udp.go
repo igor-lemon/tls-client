@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	quic "github.com/bogdanfinn/quic-go-utls"
+	quic "github.com/igor-lemon/quic-go-utls"
 	tls "github.com/bogdanfinn/utls"
 )
 
