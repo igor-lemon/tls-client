@@ -103,6 +103,10 @@ type httpClientConfig struct {
 	// lookup finds a host's addresses for connection coalescing; nil, none.
 	lookup LookupFunc
 
+	// wrapTransport is what the client's requests go through instead of the
+	// round tripper it builds, made of that one; nil, nothing.
+	wrapTransport func(http.RoundTripper) http.RoundTripper
+
 	preHooks  []PreRequestHookFunc
 	postHooks []PostResponseHookFunc
 }
@@ -387,6 +391,19 @@ type LookupFunc func(ctx context.Context, host string) ([]netip.Addr, error)
 func WithConnectionCoalescing(lookup LookupFunc) HttpClientOption {
 	return func(config *httpClientConfig) {
 		config.lookup = lookup
+	}
+}
+
+// WithTransportWrapper has the client send every request, each hop of a
+// redirect it follows too, through what wrap makes of the round tripper it
+// builds: wrap is handed that one when the client is made, and each one
+// SetProxy builds in its place. What wrap returns may send a request on
+// another round tripper, another client's. The client's own methods reach the
+// round tripper it built, whatever wraps it: CloseIdleConnections closes its
+// idle connections, and GetTLSDialer dials as it does.
+func WithTransportWrapper(wrap func(http.RoundTripper) http.RoundTripper) HttpClientOption {
+	return func(config *httpClientConfig) {
+		config.wrapTransport = wrap
 	}
 }
 

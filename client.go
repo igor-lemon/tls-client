@@ -64,6 +64,9 @@ type httpClient struct {
 	config           *httpClientConfig
 	headerLck        sync.Mutex
 	dialer           proxy.ContextDialer
+	// built is the round tripper the client built, which Transport is, or
+	// what WithTransportWrapper made of it.
+	built *roundTripper
 
 	preHooksLck  sync.RWMutex
 	postHooksLck sync.RWMutex
@@ -125,7 +128,7 @@ func NewHttpClient(logger Logger, options ...HttpClientOption) (HttpClient, erro
 
 	config.clientProfile = clientProfile
 
-	return &httpClient{
+	c := &httpClient{
 		Client:           *client,
 		logger:           logger,
 		config:           config,
@@ -136,7 +139,20 @@ func NewHttpClient(logger Logger, options ...HttpClientOption) (HttpClient, erro
 		postHooksLck:     sync.RWMutex{},
 		preHooks:         append([]PreRequestHookFunc{}, config.preHooks...),
 		postHooks:        append([]PostResponseHookFunc{}, config.postHooks...),
-	}, nil
+	}
+	c.use(client.Transport.(*roundTripper))
+
+	return c, nil
+}
+
+// use has the client send its requests by rt, through what the caller wraps it
+// in (WithTransportWrapper).
+func (c *httpClient) use(rt *roundTripper) {
+	c.built = rt
+	c.Transport = rt
+	if c.config.wrapTransport != nil {
+		c.Transport = c.config.wrapTransport(rt)
+	}
 }
 
 func validateConfig(config *httpClientConfig) error {
@@ -281,9 +297,10 @@ func buildFromConfig(logger Logger, config *httpClientConfig) (*http.Client, pro
 	return client, dialer, bandwidthTracker, clientProfile, nil
 }
 
-// CloseIdleConnections closes all idle connections of the underlying http client.
+// CloseIdleConnections closes all idle connections of the underlying http client:
+// those of the round tripper it built, whatever wraps it.
 func (c *httpClient) CloseIdleConnections() {
-	c.Client.CloseIdleConnections()
+	c.built.CloseIdleConnections()
 }
 
 // GetDialer() returns the underlying Dialer
@@ -295,14 +312,8 @@ func (c *httpClient) GetDialer() proxy.ContextDialer {
 // as regular HTTP requests. This is essential for WebSocket connections to maintain
 // consistent fingerprinting.
 func (c *httpClient) GetTLSDialer() TLSDialerFunc {
-	// Get the roundTripper from the client's transport
-	rt, ok := c.Transport.(*roundTripper)
-	if !ok {
-		// Fallback to a simple TLS dialer if the transport is not a roundTripper
-		return func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return c.dialer.DialContext(ctx, network, addr)
-		}
-	}
+	// The round tripper the client built, whatever wraps it.
+	rt := c.built
 
 	// Return a function that uses the roundTripper's dialTLSForWebsocket method
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -409,7 +420,7 @@ func (c *httpClient) applyProxy() error {
 	}
 	transport.(*roundTripper).coalesceWith(c.config.lookup)
 
-	c.Transport = transport
+	c.use(transport.(*roundTripper))
 
 	return nil
 }

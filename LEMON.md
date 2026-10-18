@@ -22,6 +22,18 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
 
 ## Patches
 
+- **A client's requests through a wrapper of its round tripper**
+  (`WithTransportWrapper`): every request the client sends, each hop of a
+  redirect it follows too, goes through what the wrapper made of the round
+  tripper the client built, when it was made and each time `SetProxy` builds
+  another; what the wrapper returns may send a request on another client's
+  round tripper. `CloseIdleConnections` and `GetTLSDialer` reach the round
+  tripper the client built, whatever wraps it, and `GetTLSDialer` no longer
+  falls back to the plain dialer, which it did only for a transport that was
+  no round tripper of the client's. Unset, the client sends by its round
+  tripper, as before. Tests in `wrapper_test.go`; tls-forge sends each hop
+  of a redirect on the connections of its own top-level site and
+  credentials with it, held end to end in tls-forge.
 - **A request to another host on an HTTP/2 connection that fits it**
   (`WithConnectionCoalescing`, a `LookupFunc`): every address that negotiates
   h2 is served by one HTTP/2 transport, whose pool (fhttp's
