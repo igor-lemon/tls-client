@@ -1,6 +1,8 @@
 package profiles
 
 import (
+	"time"
+
 	tls "github.com/bogdanfinn/utls"
 	"github.com/igor-lemon/fhttp/http2"
 	"github.com/igor-lemon/fhttp/http2/hpack"
@@ -111,6 +113,7 @@ type ClientProfile struct {
 	http3SendGreaseFrames  bool
 	headerRepresentation   func(hpack.HeaderField) hpack.Representation
 	maxEncoderTableSize    uint32
+	windowUpdateDelay      time.Duration
 }
 
 func NewClientProfile(clientHelloId tls.ClientHelloID, settings map[http2.SettingID]uint32, settingsOrder []http2.SettingID, pseudoHeaderOrder []string, connectionFlow uint32, priorities []http2.Priority, headerPriority *http2.PriorityParam, streamID uint32, allowHTTP bool, http3Settings map[uint64]uint64, http3SettingsOrder []uint64, http3PriorityParam uint32, http3PseudoHeaderOrder []string, http3SendGreaseFrames bool) ClientProfile {

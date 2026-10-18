@@ -64,3 +64,13 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   allows. Tests in `representation_test.go` and
   `profiles/representation_test.go`; that the transport takes it is held end
   to end in tls-forge.
+- **A profile says when it tells a server of its windows**
+  (`profiles.ClientProfile.WithWindowUpdateDelay`, `GetWindowUpdateDelay`),
+  which the round tripper gives its HTTP/2 transport (fhttp's
+  `http2.Transport.WindowUpdateDelay`): what a reader frees of a window is
+  told once more than half of it is, or at the first byte freed more than the
+  delay after the server was last told, as Chrome does. Unset, as every
+  catalogue profile is, the transport's own rule, as before. tls-forge sets
+  five seconds for Chromium. Tests in `windowupdate_test.go` and
+  `profiles/windowupdate_test.go`; that the transport tells as Chrome does is
+  held end to end in tls-forge.

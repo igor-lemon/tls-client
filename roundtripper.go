@@ -61,6 +61,7 @@ type roundTripper struct {
 	headerPriority       *http2.PriorityParam
 	headerRepresentation func(hpack.HeaderField) hpack.Representation
 	maxEncoderTableSize  uint32
+	windowUpdateDelay    time.Duration
 	settings             map[http2.SettingID]uint32
 	transportOptions     *TransportOptions
 	serverNameOverwrite  string
@@ -513,6 +514,7 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 
 			HeaderRepresentation:      rt.headerRepresentation,
 			MaxEncoderHeaderTableSize: rt.maxEncoderTableSize,
+			WindowUpdateDelay:         rt.windowUpdateDelay,
 			InitialStreamID:           rt.initialStreamID,
 			AllowHTTP:                 rt.allowHTTP,
 		}
@@ -747,6 +749,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		headerPriority:              clientProfile.GetHeaderPriority(),
 		headerRepresentation:        clientProfile.GetHeaderRepresentation(),
 		maxEncoderTableSize:         clientProfile.GetMaxEncoderHeaderTableSize(),
+		windowUpdateDelay:           clientProfile.GetWindowUpdateDelay(),
 		pseudoHeaderOrder:           clientProfile.GetPseudoHeaderOrder(),
 		insecureSkipVerify:          insecureSkipVerify,
 		forceHttp1:                  forceHttp1,
