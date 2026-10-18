@@ -22,6 +22,19 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
 
 ## Patches
 
+- **A request to another host on an HTTP/2 connection that fits it**
+  (`WithConnectionCoalescing`, a `LookupFunc`): every address that negotiates
+  h2 is served by one HTTP/2 transport, whose pool (fhttp's
+  `http2.Transport.Coalesce`) has a request to a host it holds no connection
+  for go out on one to another whose certificate was verified and is good
+  for the host, on which the host's pins hold, at an address the lookup finds
+  the host at and on its port, as Chrome pools them; a request to a host the
+  client has no transport for is offered those connections before it dials.
+  None is shared through a proxy, with a server name overwritten, client
+  certificates or protocol racing, and a host whose dial found HTTP/1.1 is
+  never offered one. Unset, every address has a transport of its own, as
+  before. Tests in `coalesce_test.go`; that tls-forge's requests go out on
+  the connections Chrome sent them on is held end to end in tls-forge.
 - **A profile says how it writes headers into HPACK**
   (`profiles.ClientProfile.WithHeaderRepresentation`,
   `GetHeaderRepresentation`), which the round tripper gives its HTTP/2

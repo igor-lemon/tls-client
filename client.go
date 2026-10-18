@@ -267,6 +267,7 @@ func buildFromConfig(logger Logger, config *httpClientConfig) (*http.Client, pro
 	if err != nil {
 		return nil, nil, nil, clientProfile, err
 	}
+	transport.(*roundTripper).coalesceWith(config.lookup)
 
 	client := &http.Client{
 		Timeout:       config.timeout,
@@ -420,6 +421,7 @@ func (c *httpClient) applyProxy() error {
 	if err != nil {
 		return err
 	}
+	transport.(*roundTripper).coalesceWith(c.config.lookup)
 
 	c.Transport = transport
 
