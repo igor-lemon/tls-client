@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"time"
 
 	tls "github.com/bogdanfinn/utls"
@@ -98,6 +99,9 @@ type httpClientConfig struct {
 	disableIPV4 bool
 
 	enabledBandwidthTracker bool
+
+	// lookup finds a host's addresses for connection coalescing; nil, none.
+	lookup LookupFunc
 
 	preHooks  []PreRequestHookFunc
 	postHooks []PostResponseHookFunc
@@ -362,6 +366,27 @@ func WithPreHook(hook PreRequestHookFunc) HttpClientOption {
 func WithPostHook(hook PostResponseHookFunc) HttpClientOption {
 	return func(config *httpClientConfig) {
 		config.postHooks = append(config.postHooks, hook)
+	}
+}
+
+// LookupFunc finds the addresses of host, as the client's dialer would.
+type LookupFunc func(ctx context.Context, host string) ([]netip.Addr, error)
+
+// WithConnectionCoalescing has a request to a host the client holds no
+// connection to go out on an HTTP/2 connection it holds to another, as
+// Chrome sends it, when one fits: its certificate was verified and is good
+// for the host, the host's certificate pins hold on it, and lookup finds the
+// host at the connection's address, on its port. The first that fits, by the
+// order lookup found the addresses in and then by age, carries the host's
+// requests from then on, for as long as it can take them. Chrome looks the
+// host up before it dials, and so does the client, with lookup; when none
+// fits, it dials as before. Connections are not shared through a proxy
+// (WithProxyUrl), whose address is all a connection knows, nor with a server
+// name overwritten, client certificates, or protocol racing, and HTTP/1.1
+// connections never are.
+func WithConnectionCoalescing(lookup LookupFunc) HttpClientOption {
+	return func(config *httpClientConfig) {
+		config.lookup = lookup
 	}
 }
 

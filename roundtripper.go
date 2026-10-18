@@ -90,6 +90,16 @@ type roundTripper struct {
 	withRandomTlsExtensionOrder bool
 	disableIPV6                 bool
 	disableIPV4                 bool
+
+	// lookup, when set, has requests to one host share the HTTP/2
+	// connections of others (coalesce.go): every address that negotiates h2
+	// is then served by shared, one transport, whose pool can see them all.
+	lookup LookupFunc
+	shared *http2.Transport
+	// stashed are the addresses whose connection, dialed to find out the
+	// protocol, waits in cachedConnections to be taken up: a request to one
+	// is not offered another's.
+	stashed sync.Map
 }
 
 // http3Config contains all parameters needed to build an HTTP/3 transport
@@ -159,13 +169,18 @@ func (rt *roundTripper) dropCachedTransport(addr string, stale http.RoundTripper
 	if rt.cachedTransports[addr] == stale {
 		delete(rt.cachedTransports, addr)
 	}
+	// The shared HTTP/2 transport's idle connections are other hosts' too.
+	shared := false
+	for _, t := range rt.cachedTransports {
+		shared = shared || t == stale
+	}
 	rt.cachedTransportsLck.Unlock()
 
 	rt.cachedKindsLck.Lock()
 	delete(rt.cachedKinds, addr)
 	rt.cachedKindsLck.Unlock()
 
-	if closer, ok := stale.(interface{ CloseIdleConnections() }); ok {
+	if closer, ok := stale.(interface{ CloseIdleConnections() }); ok && !shared {
 		closer.CloseIdleConnections()
 	}
 }
@@ -325,6 +340,13 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	rt.cachedTransportsLck.Lock()
+	if shared := rt.shared; shared != nil && rt.cachedTransports[addr] == nil && strings.ToLower(req.URL.Scheme) == "https" {
+		rt.cachedTransportsLck.Unlock()
+		if resp, sent, err := rt.coalesced(shared, req, addr); sent {
+			return resp, err
+		}
+		rt.cachedTransportsLck.Lock()
+	}
 	if _, ok := rt.cachedTransports[addr]; !ok {
 		if err := rt.getTransport(req, addr); err != nil {
 			rt.cachedTransportsLck.Unlock()
@@ -379,6 +401,7 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 	// cachedTransports to use, return that.
 	if conn := rt.cachedConnections[addr]; conn != nil {
 		delete(rt.cachedConnections, addr)
+		rt.stashed.Delete(addr)
 
 		return conn, nil
 	}
@@ -460,6 +483,11 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 
 	switch negotiatedProtocol {
 	case http2.NextProtoTLS:
+		if rt.shared != nil {
+			rt.cachedTransports[addr] = rt.shared
+			rt.setCachedKind(addr, transportHTTP2)
+			break
+		}
 		utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true}
 		if rt.transportOptions != nil {
 			utlsConfig.RootCAs = rt.transportOptions.RootCAs
@@ -543,6 +571,10 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 		t2.Priorities = rt.priorities
 
 		t2.PushHandler = &http2.DefaultPushHandler{}
+		if rt.lookup != nil {
+			t2.Coalesce = rt.coalescable
+			rt.shared = &t2
+		}
 		rt.cachedTransports[addr] = &t2
 		rt.setCachedKind(addr, transportHTTP2)
 	case http3.NextProtoH3:
@@ -571,6 +603,7 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 	// Stash the connection just established for use servicing the
 	// actual request (should be near-immediate).
 	rt.cachedConnections[addr] = conn
+	rt.stashed.Store(addr, true)
 
 	return nil, errProtocolNegotiated
 }
