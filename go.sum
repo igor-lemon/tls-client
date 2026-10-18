@@ -13,8 +13,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/igor-lemon/fhttp v0.6.10-0.20261017230243-b77cd347b424 h1:0TcrMDTP6alRRhgBxLsYVnmM31PPq0/HNEurc2iH6T0=
-github.com/igor-lemon/fhttp v0.6.10-0.20261017230243-b77cd347b424/go.mod h1:Mmt5MazHNRtkQc2KeClCPdmC5Ek5oqwl7qUK1oQqr4M=
+github.com/igor-lemon/fhttp v0.6.10-0.20261018003056-5a276db6fd8a h1:QgAqTVyVRBnBmJVQW4bYjWoG3unwbg4DSgnd4ghg9mo=
+github.com/igor-lemon/fhttp v0.6.10-0.20261018003056-5a276db6fd8a/go.mod h1:Mmt5MazHNRtkQc2KeClCPdmC5Ek5oqwl7qUK1oQqr4M=
 github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261017231728-767e9b035c12 h1:xDRNNbCDMop/P0JNcCcvdNLiVB3Be1H1Vq7/D+ycxbY=
 github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261017231728-767e9b035c12/go.mod h1:5nlCFkyHA2XbCATxgE/Bsyo6MZCa+NuPa8xjsY+9hTI=
 github.com/igor-lemon/websocket v1.5.6-barnius.0.20261017231726-3d8c1e74f176 h1:83D6LQfvFQNJMBC2y7ub1E8T6TKOSX7h1XJoGDzxPdA=

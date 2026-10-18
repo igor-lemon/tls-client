@@ -6,7 +6,7 @@ require (
 	github.com/bdandy/go-socks4 v1.2.3
 	github.com/bogdanfinn/utls v1.7.8-barnius
 	github.com/google/uuid v1.6.0
-	github.com/igor-lemon/fhttp v0.6.10-0.20261017230243-b77cd347b424
+	github.com/igor-lemon/fhttp v0.6.10-0.20261018003056-5a276db6fd8a
 	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261017231728-767e9b035c12
 	github.com/igor-lemon/websocket v1.5.6-barnius.0.20261017231726-3d8c1e74f176
 	github.com/stretchr/testify v1.11.1

@@ -30,3 +30,12 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   Chromium. Tests in `representation_test.go` and
   `profiles/representation_test.go`; that the transport writes as told is
   held end to end in tls-forge.
+- **A profile says how large an HPACK table it writes headers against**
+  (`profiles.ClientProfile.WithMaxEncoderHeaderTableSize`,
+  `GetMaxEncoderHeaderTableSize`), which the round tripper gives its HTTP/2
+  transport (fhttp's `http2.Transport.MaxEncoderHeaderTableSize`): the
+  largest table a server's SETTINGS can give the encoder. Unset, 4096, as
+  before. tls-forge sets no limit for Chromium, which takes whatever a server
+  allows. Tests in `representation_test.go` and
+  `profiles/representation_test.go`; that the transport takes it is held end
+  to end in tls-forge.
