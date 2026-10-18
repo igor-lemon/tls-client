@@ -20,3 +20,14 @@ func TestTheRoundTripperWritesHeadersAsItsProfileSays(t *testing.T) {
 		t.Error("the round tripper does not write as its profile says")
 	}
 }
+
+func TestTheRoundTripperTakesItsProfilesEncoderTableLimit(t *testing.T) {
+	rt, err := newRoundTripper(profiles.Chrome_133.WithMaxEncoderHeaderTableSize(1<<20), nil, "", false, false, false, false,
+		false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.(*roundTripper).maxEncoderTableSize; got != 1<<20 {
+		t.Errorf("the round tripper's limit is %d", got)
+	}
+}

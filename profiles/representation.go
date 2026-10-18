@@ -14,3 +14,18 @@ func (c ClientProfile) WithHeaderRepresentation(of func(hpack.HeaderField) hpack
 	c.headerRepresentation = of
 	return c
 }
+
+// GetMaxEncoderHeaderTableSize is the largest HPACK table the profile writes
+// headers against, whatever a server allows past it; 0 for 4096
+// (http2.Transport.MaxEncoderHeaderTableSize).
+func (c ClientProfile) GetMaxEncoderHeaderTableSize() uint32 {
+	return c.maxEncoderTableSize
+}
+
+// WithMaxEncoderHeaderTableSize is the profile writing headers against an
+// HPACK table as large as a server allows, up to size; 0 for 4096. Chrome
+// takes whatever a server allows.
+func (c ClientProfile) WithMaxEncoderHeaderTableSize(size uint32) ClientProfile {
+	c.maxEncoderTableSize = size
+	return c
+}
