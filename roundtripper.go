@@ -65,16 +65,21 @@ type roundTripper struct {
 	cachedKinds    map[string]transportKind
 	cachedKindsLck sync.Mutex
 
-	headerPriority       *http2.PriorityParam
-	headerRepresentation func(hpack.HeaderField) hpack.Representation
-	maxEncoderTableSize  uint32
-	windowUpdateDelay    time.Duration
-	settings             map[http2.SettingID]uint32
-	transportOptions     *TransportOptions
-	serverNameOverwrite  string
-	priorities           []http2.Priority
-	pseudoHeaderOrder    []string
-	settingsOrder        []http2.SettingID
+	headerPriority        *http2.PriorityParam
+	headerRepresentation  func(hpack.HeaderField) hpack.Representation
+	maxEncoderTableSize   uint32
+	windowUpdateDelay     time.Duration
+	maxHeaderFramePayload uint32
+	maxDataFramePayload   uint32
+	// dynamicRecordSizingDisabled has TLS write records as large as what is
+	// written allows from a connection's first byte.
+	dynamicRecordSizingDisabled bool
+	settings                    map[http2.SettingID]uint32
+	transportOptions            *TransportOptions
+	serverNameOverwrite         string
+	priorities                  []http2.Priority
+	pseudoHeaderOrder           []string
+	settingsOrder               []http2.SettingID
 	sync.Mutex
 
 	cachedTransportsLck sync.Mutex
@@ -531,7 +536,8 @@ func (rt *roundTripper) dialTLSWithSetup(ctx context.Context, network, addr stri
 		host = rt.serverNameOverwrite
 	}
 
-	tlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, ServerName: host, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true}
+	tlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, ServerName: host, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled}
 	if rt.transportOptions != nil {
 		tlsConfig.RootCAs = rt.transportOptions.RootCAs
 		tlsConfig.KeyLogWriter = rt.transportOptions.KeyLogWriter
@@ -605,7 +611,8 @@ func (rt *roundTripper) dialTLSWithSetup(ctx context.Context, network, addr stri
 			rt.setCachedKind(addr, transportHTTP2)
 			break
 		}
-		utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true}
+		utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
+			DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled}
 		if rt.transportOptions != nil {
 			utlsConfig.RootCAs = rt.transportOptions.RootCAs
 			utlsConfig.Certificates = rt.transportOptions.Certificates
@@ -631,6 +638,8 @@ func (rt *roundTripper) dialTLSWithSetup(ctx context.Context, network, addr stri
 			HeaderRepresentation:      rt.headerRepresentation,
 			MaxEncoderHeaderTableSize: rt.maxEncoderTableSize,
 			WindowUpdateDelay:         rt.windowUpdateDelay,
+			MaxHeaderFramePayload:     rt.maxHeaderFramePayload,
+			MaxDataFramePayload:       rt.maxDataFramePayload,
 			InitialStreamID:           rt.initialStreamID,
 			AllowHTTP:                 rt.allowHTTP,
 		}
@@ -724,7 +733,8 @@ func (rt *roundTripper) dial(ctx context.Context, network, addr string) (net.Con
 }
 
 func (rt *roundTripper) buildHttp1Transport() *http.Transport {
-	utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true}
+	utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled}
 	if rt.transportOptions != nil {
 		utlsConfig.RootCAs = rt.transportOptions.RootCAs
 		utlsConfig.Certificates = rt.transportOptions.Certificates
@@ -814,10 +824,11 @@ func (rt *roundTripper) dialTLSForWebsocket(ctx context.Context, network, addr s
 	}
 
 	tlsConfig := &tls.Config{
-		ClientSessionCache: rt.clientSessionCache,
-		ServerName:         host,
-		InsecureSkipVerify: rt.insecureSkipVerify,
-		OmitEmptyPsk:       true,
+		ClientSessionCache:          rt.clientSessionCache,
+		ServerName:                  host,
+		InsecureSkipVerify:          rt.insecureSkipVerify,
+		OmitEmptyPsk:                true,
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled,
 	}
 	if rt.transportOptions != nil {
 		tlsConfig.RootCAs = rt.transportOptions.RootCAs
@@ -924,6 +935,9 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		headerRepresentation:        clientProfile.GetHeaderRepresentation(),
 		maxEncoderTableSize:         clientProfile.GetMaxEncoderHeaderTableSize(),
 		windowUpdateDelay:           clientProfile.GetWindowUpdateDelay(),
+		maxHeaderFramePayload:       clientProfile.GetMaxHeaderFramePayload(),
+		maxDataFramePayload:         clientProfile.GetMaxDataFramePayload(),
+		dynamicRecordSizingDisabled: clientProfile.GetDynamicRecordSizingDisabled(),
 		pseudoHeaderOrder:           clientProfile.GetPseudoHeaderOrder(),
 		insecureSkipVerify:          insecureSkipVerify,
 		forceHttp1:                  forceHttp1,
