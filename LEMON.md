@@ -101,3 +101,15 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   1,400 for Chromium, Chrome's HttpStreamParser's limit. Tests in
   `framing_test.go` and `profiles/framing_test.go`; that the transport writes
   as Chrome does is held end to end in tls-forge.
+- **A profile says whether it waits for a stream**
+  (`profiles.ClientProfile.WithStrictMaxConcurrentStreams` and its getter),
+  which the round tripper gives its HTTP/2 transport (fhttp's
+  `http2.Transport.StrictMaxConcurrentStreams`): once the server's
+  MAX_CONCURRENT_STREAMS are all in use, a request waits for a stream on the
+  connection it would have gone out on, where the transport opened another
+  connection to the server. Chrome waits: a server that said none at a time
+  in ALPS had its requests on the one connection once its SETTINGS allowed
+  some (tls-forge's bench, `alps-settings-streams-0`). Unset, as every
+  catalogue profile is, another connection, as before. tls-forge sets it for
+  Chromium. Tests in `framing_test.go` and `profiles/framing_test.go`; that
+  the transport waits as Chrome does is held end to end in tls-forge.

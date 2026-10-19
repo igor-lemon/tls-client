@@ -23,3 +23,11 @@ func TestAProfileThatWritesHTTP1AsChromeIsACopy(t *testing.T) {
 		t.Errorf("the profile merges %d, its copy %d", base.GetMaxMergedHeadAndBody(), with.GetMaxMergedHeadAndBody())
 	}
 }
+
+func TestAProfileThatWaitsForAStreamIsACopy(t *testing.T) {
+	base := Chrome_133
+	with := base.WithStrictMaxConcurrentStreams(true)
+	if base.GetStrictMaxConcurrentStreams() || !with.GetStrictMaxConcurrentStreams() {
+		t.Errorf("the profile waits %v, its copy %v", base.GetStrictMaxConcurrentStreams(), with.GetStrictMaxConcurrentStreams())
+	}
+}

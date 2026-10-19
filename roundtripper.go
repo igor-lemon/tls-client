@@ -76,12 +76,15 @@ type roundTripper struct {
 	dynamicRecordSizingDisabled bool
 	// maxMergedHeadAndBody is the HTTP/1.1 transport's MaxMergedHeadAndBody.
 	maxMergedHeadAndBody int
-	settings             map[http2.SettingID]uint32
-	transportOptions     *TransportOptions
-	serverNameOverwrite  string
-	priorities           []http2.Priority
-	pseudoHeaderOrder    []string
-	settingsOrder        []http2.SettingID
+	// strictMaxConcurrentStreams is the HTTP/2 transport's
+	// StrictMaxConcurrentStreams.
+	strictMaxConcurrentStreams bool
+	settings                   map[http2.SettingID]uint32
+	transportOptions           *TransportOptions
+	serverNameOverwrite        string
+	priorities                 []http2.Priority
+	pseudoHeaderOrder          []string
+	settingsOrder              []http2.SettingID
 	sync.Mutex
 
 	cachedTransportsLck sync.Mutex
@@ -637,13 +640,14 @@ func (rt *roundTripper) dialTLSWithSetup(ctx context.Context, network, addr stri
 			HeaderPriority:  rt.headerPriority,
 			IdleConnTimeout: idleConnectionTimeout,
 
-			HeaderRepresentation:      rt.headerRepresentation,
-			MaxEncoderHeaderTableSize: rt.maxEncoderTableSize,
-			WindowUpdateDelay:         rt.windowUpdateDelay,
-			MaxHeaderFramePayload:     rt.maxHeaderFramePayload,
-			MaxDataFramePayload:       rt.maxDataFramePayload,
-			InitialStreamID:           rt.initialStreamID,
-			AllowHTTP:                 rt.allowHTTP,
+			HeaderRepresentation:       rt.headerRepresentation,
+			MaxEncoderHeaderTableSize:  rt.maxEncoderTableSize,
+			WindowUpdateDelay:          rt.windowUpdateDelay,
+			MaxHeaderFramePayload:      rt.maxHeaderFramePayload,
+			MaxDataFramePayload:        rt.maxDataFramePayload,
+			StrictMaxConcurrentStreams: rt.strictMaxConcurrentStreams,
+			InitialStreamID:            rt.initialStreamID,
+			AllowHTTP:                  rt.allowHTTP,
 		}
 
 		if rt.transportOptions != nil {
@@ -942,6 +946,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		maxDataFramePayload:         clientProfile.GetMaxDataFramePayload(),
 		dynamicRecordSizingDisabled: clientProfile.GetDynamicRecordSizingDisabled(),
 		maxMergedHeadAndBody:        clientProfile.GetMaxMergedHeadAndBody(),
+		strictMaxConcurrentStreams:  clientProfile.GetStrictMaxConcurrentStreams(),
 		pseudoHeaderOrder:           clientProfile.GetPseudoHeaderOrder(),
 		insecureSkipVerify:          insecureSkipVerify,
 		forceHttp1:                  forceHttp1,
