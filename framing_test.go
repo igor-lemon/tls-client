@@ -17,3 +17,16 @@ func TestTheRoundTripperTakesHowItsProfileFramesAndRecords(t *testing.T) {
 		t.Errorf("the round tripper frames %d, records disabled %v", r.maxDataFramePayload, r.dynamicRecordSizingDisabled)
 	}
 }
+
+func TestTheHTTP1TransportWritesAsItsProfileSays(t *testing.T) {
+	for _, limit := range []int{0, 1400} {
+		rt, err := newRoundTripper(profiles.Chrome_133.WithMaxMergedHeadAndBody(limit), nil,
+			"", false, false, false, false, false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := rt.(*roundTripper).buildHttp1Transport().MaxMergedHeadAndBody; got != limit {
+			t.Errorf("a profile merging %d: the transport merges %d", limit, got)
+		}
+	}
+}
