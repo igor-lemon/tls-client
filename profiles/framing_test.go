@@ -15,3 +15,11 @@ func TestAProfileThatFramesAndRecordsAsChromeIsACopy(t *testing.T) {
 		t.Error("the copy is another profile")
 	}
 }
+
+func TestAProfileThatWritesHTTP1AsChromeIsACopy(t *testing.T) {
+	base := Chrome_133
+	with := base.WithMaxMergedHeadAndBody(1400)
+	if base.GetMaxMergedHeadAndBody() != 0 || with.GetMaxMergedHeadAndBody() != 1400 {
+		t.Errorf("the profile merges %d, its copy %d", base.GetMaxMergedHeadAndBody(), with.GetMaxMergedHeadAndBody())
+	}
+}

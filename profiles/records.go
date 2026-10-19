@@ -16,3 +16,21 @@ func (c ClientProfile) WithDynamicRecordSizingDisabled(disabled bool) ClientProf
 	c.dynamicRecordSizingDisabled = disabled
 	return c
 }
+
+// GetMaxMergedHeadAndBody is how many bytes an HTTP/1.1 request's head and a
+// body held in memory may be together for the profile to write them at once,
+// its head being written at once in any case
+// (http.Transport.MaxMergedHeadAndBody); 0 when it writes a request through
+// the connection's buffer, as Go does.
+func (c ClientProfile) GetMaxMergedHeadAndBody() int {
+	return c.maxMergedHeadAndBody
+}
+
+// WithMaxMergedHeadAndBody is the profile writing an HTTP/1.1 request as
+// Chrome does when limit is above zero: its head at once, whatever its size,
+// and a body held in memory in the same write when the two are no more than
+// limit bytes, Chrome's 1,400; as Go does otherwise.
+func (c ClientProfile) WithMaxMergedHeadAndBody(limit int) ClientProfile {
+	c.maxMergedHeadAndBody = limit
+	return c
+}

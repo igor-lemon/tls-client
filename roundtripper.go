@@ -74,12 +74,14 @@ type roundTripper struct {
 	// dynamicRecordSizingDisabled has TLS write records as large as what is
 	// written allows from a connection's first byte.
 	dynamicRecordSizingDisabled bool
-	settings                    map[http2.SettingID]uint32
-	transportOptions            *TransportOptions
-	serverNameOverwrite         string
-	priorities                  []http2.Priority
-	pseudoHeaderOrder           []string
-	settingsOrder               []http2.SettingID
+	// maxMergedHeadAndBody is the HTTP/1.1 transport's MaxMergedHeadAndBody.
+	maxMergedHeadAndBody int
+	settings             map[http2.SettingID]uint32
+	transportOptions     *TransportOptions
+	serverNameOverwrite  string
+	priorities           []http2.Priority
+	pseudoHeaderOrder    []string
+	settingsOrder        []http2.SettingID
 	sync.Mutex
 
 	cachedTransportsLck sync.Mutex
@@ -750,7 +752,8 @@ func (rt *roundTripper) buildHttp1Transport() *http.Transport {
 		idleConnectionTimeout = *rt.transportOptions.IdleConnTimeout
 	}
 
-	t := &http.Transport{DialContext: rt.dial, DialTLSContext: rt.dialTLS, TLSClientConfig: utlsConfig, ConnectionFlow: rt.connectionFlow, IdleConnTimeout: idleConnectionTimeout}
+	t := &http.Transport{DialContext: rt.dial, DialTLSContext: rt.dialTLS, TLSClientConfig: utlsConfig, ConnectionFlow: rt.connectionFlow, IdleConnTimeout: idleConnectionTimeout,
+		MaxMergedHeadAndBody: rt.maxMergedHeadAndBody}
 
 	if rt.transportOptions != nil {
 		t.DisableKeepAlives = rt.transportOptions.DisableKeepAlives
@@ -938,6 +941,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		maxHeaderFramePayload:       clientProfile.GetMaxHeaderFramePayload(),
 		maxDataFramePayload:         clientProfile.GetMaxDataFramePayload(),
 		dynamicRecordSizingDisabled: clientProfile.GetDynamicRecordSizingDisabled(),
+		maxMergedHeadAndBody:        clientProfile.GetMaxMergedHeadAndBody(),
 		pseudoHeaderOrder:           clientProfile.GetPseudoHeaderOrder(),
 		insecureSkipVerify:          insecureSkipVerify,
 		forceHttp1:                  forceHttp1,

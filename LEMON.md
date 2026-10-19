@@ -90,3 +90,14 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   them. Tests in `headerframes_test.go`, `framing_test.go`,
   `profiles/headerframes_test.go` and `profiles/framing_test.go`; that the
   transport writes as Chrome does is held end to end in tls-forge.
+- **A profile says how it writes an HTTP/1.1 request**
+  (`profiles.ClientProfile.WithMaxMergedHeadAndBody` and its getter), which
+  the round tripper gives its HTTP/1.1 transport (fhttp's
+  `http.Transport.MaxMergedHeadAndBody`): a request's head goes to the
+  connection at once, whatever its size, and a body held in memory in the
+  same write when the two are no more than that many bytes together, where
+  the transport's 4 KiB buffer cut a larger head into pieces and wrote every
+  body apart. Unset, as every catalogue profile is, as before. tls-forge sets
+  1,400 for Chromium, Chrome's HttpStreamParser's limit. Tests in
+  `framing_test.go` and `profiles/framing_test.go`; that the transport writes
+  as Chrome does is held end to end in tls-forge.
