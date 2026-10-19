@@ -74,3 +74,19 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   five seconds for Chromium. Tests in `windowupdate_test.go` and
   `profiles/windowupdate_test.go`; that the transport tells as Chrome does is
   held end to end in tls-forge.
+- **A profile says how large its frames and TLS records are**
+  (`profiles.ClientProfile.WithMaxHeaderFramePayload`,
+  `WithMaxDataFramePayload`, `WithDynamicRecordSizingDisabled`, and their
+  getters), which the round tripper gives its HTTP/2 transport (fhttp's
+  `http2.Transport.MaxHeaderFramePayload` and `MaxDataFramePayload`) and
+  every TLS config of a connection over TCP (utls's
+  `DynamicRecordSizingDisabled`): a header block is cut into frames of at most
+  that much payload each, a HEADERS frame's priority included, a request's
+  body into DATA frames of at most that much, below what the server allows;
+  and TLS writes records as large as what is written allows from a
+  connection's first byte, where Go's TLS cuts its first writes into records
+  of about 1 KiB that grow. Unset, as every catalogue profile is, as before.
+  tls-forge sets 16,374, 16,375 and disabled for Chromium, as Chrome writes
+  them. Tests in `headerframes_test.go`, `framing_test.go`,
+  `profiles/headerframes_test.go` and `profiles/framing_test.go`; that the
+  transport writes as Chrome does is held end to end in tls-forge.
