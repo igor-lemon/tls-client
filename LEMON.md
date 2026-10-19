@@ -153,3 +153,26 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   the connection and never answered held the request for good, but an HTTP
   proxy's CONNECT, for the timeout. Tests in `proxycontext_test.go`; 11
   mutants, all killed.
+- **A server that changes its protocol: one transport an address, and the
+  request goes again** (`roundtripper.go`, the meaning of upstream's
+  ab95f96 on the setups above): a connection a transport dialed for itself
+  is that transport's only when it speaks what the transport does; one that
+  speaks another protocol, or whose transport was dropped as it dialed,
+  builds no transport (only a setup does, under the lock that guards them)
+  and is reported with `errProtocolChanged`, where it built and cached
+  another transport and failed the request with `protocol negotiated`; a
+  transport is dropped with its kind, under the same lock, and only when it
+  is still the one cached, where its kind was dropped apart and could take a
+  newer transport's with it; and a request whose connection spoke another
+  protocol goes again, nothing of it having been sent, on a transport set up
+  for what the server speaks now, three times at most
+  (`protocolChanges`), where it failed. Reproduced with seams
+  (`reconnected`, `dropping`): a transport dropped while its connection
+  shook hands, and a setup between a drop's two locks; and under load, a
+  server that says http/1.1 and h2 by turns (`-race`: a data race on
+  `cachedTransports` at 07e3f62, before the setups; `protocol negotiated`
+  for a third of the requests at 5b99793). Tests in
+  `transportcache_test.go`, upstream's setup test among them; 8 mutants, all
+  killed. A server that changes its protocol on every connection, with many
+  requests at once taking each other's connections, can still fail a few
+  of them after three changes.

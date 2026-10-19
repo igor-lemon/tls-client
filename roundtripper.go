@@ -23,8 +23,6 @@ import (
 const defaultIdleConnectionTimeout = 90 * time.Second
 const CHROME_MAX_FIELD_SECTION_SIZE = 262144
 
-var errProtocolNegotiated = errors.New("protocol negotiated")
-
 type roundTripper struct {
 	initialStreamID   uint32
 	allowHTTP         bool
@@ -181,12 +179,17 @@ func (rt *roundTripper) setCachedKind(addr string, kind transportKind) {
 // This lives here rather than in dialTLS because it writes cachedTransports,
 // and dialTLS runs without the lock that guards it whenever a cached transport
 // dials a replacement connection. It is only dropped when it is still the one
-// that failed, so a transport another goroutine has already replaced is left
-// alone.
+// that failed, and its kind with it, so a transport another goroutine has
+// already replaced is left alone, and its kind too.
 func (rt *roundTripper) dropCachedTransport(addr string, stale http.RoundTripper) {
 	rt.cachedTransportsLck.Lock()
 	if rt.cachedTransports[addr] == stale {
 		delete(rt.cachedTransports, addr)
+		// Its kind with it, and only its: one cached since is another
+		// transport's.
+		rt.cachedKindsLck.Lock()
+		delete(rt.cachedKinds, addr)
+		rt.cachedKindsLck.Unlock()
 	}
 	// The shared HTTP/2 transport's idle connections are other hosts' too.
 	shared := false
@@ -194,10 +197,7 @@ func (rt *roundTripper) dropCachedTransport(addr string, stale http.RoundTripper
 		shared = shared || t == stale
 	}
 	rt.cachedTransportsLck.Unlock()
-
-	rt.cachedKindsLck.Lock()
-	delete(rt.cachedKinds, addr)
-	rt.cachedKindsLck.Unlock()
+	dropping(addr)
 
 	if closer, ok := stale.(interface{ CloseIdleConnections() }); ok && !shared {
 		closer.CloseIdleConnections()
@@ -358,6 +358,26 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		return rt.racer.race(req, addr, rt.getTransport)
 	}
 
+	// A connection dialed for the request spoke another protocol than the
+	// transport it was dialed for, which is dropped: nothing of the request
+	// was sent, and it goes again, on a transport set up for what the server
+	// speaks now, a few times at most.
+	for changes := 0; ; changes++ {
+		resp, err := rt.roundTrip(req, addr)
+		if !errors.Is(err, errProtocolChanged) || changes == protocolChanges {
+			return resp, err
+		}
+	}
+}
+
+// protocolChanges is how many times a request goes again for a protocol a
+// server changed: one a server that changes it now and then needs, a few for
+// requests at once that take each other's connections.
+const protocolChanges = 3
+
+// roundTrip sends req to addr once: on a connection of a host it may share
+// one with, or by the transport cached for addr, set up when there is none.
+func (rt *roundTripper) roundTrip(req *http.Request, addr string) (*http.Response, error) {
 	for {
 		rt.cachedTransportsLck.Lock()
 		if shared := rt.shared; shared != nil && rt.cachedTransports[addr] == nil && strings.ToLower(req.URL.Scheme) == "https" {
@@ -417,8 +437,14 @@ type setup struct {
 }
 
 // waitingForSetup is told of each request that waits for another's setup of
-// addr: the tests' seam.
-var waitingForSetup = func(addr string) {}
+// addr, reconnected of each connection a transport dialed for addr once its
+// handshake is done, and dropping of each transport for addr dropped: the
+// tests' seams.
+var (
+	waitingForSetup = func(addr string) {}
+	reconnected     = func(addr string) {}
+	dropping        = func(addr string) {}
+)
 
 // setUp sets up the transport for addr, and caches it, holding
 // cachedTransportsLck only to cache it: the dial that finds out what the
@@ -642,12 +668,13 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 	if err != nil {
 		return nil, err
 	}
+	reconnected(addr)
 
 	negotiatedProtocol := conn.ConnectionState().NegotiatedProtocol
 	negotiatedKind := kindForProtocol(negotiatedProtocol)
 
-	// A transport is already cached for this address. Reuse it only when the
-	// handshake that just completed negotiated a protocol it can speak.
+	// The connection is the transport's that dialed it, which takes it only
+	// when it speaks what the transport does.
 	//
 	// Servers do change their mind: an address behind a load balancer can offer
 	// http/1.1 on one connection and h2 on the next. Handing the new connection to
@@ -656,29 +683,18 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 	// HTTP response" naming the raw frame bytes and keeps failing for that address
 	// until the whole client is thrown away.
 	//
-	// This connection cannot be rescued, because the dial belongs to the transport
-	// that speaks the wrong protocol. Report it instead, and let RoundTrip drop the
-	// cache entry.
-	if cachedKind, ok := rt.cachedKind(addr); ok {
-		if cachedKind == negotiatedKind {
-			return conn, nil
-		}
-
-		_ = conn.Close()
-
-		return nil, fmt.Errorf("%w: %s negotiated %q", errProtocolChanged, addr, negotiatedProtocol)
+	// Nor does this dial build a transport for what it found, when the server
+	// changed its mind or the transport was dropped as it dialed: only a setup
+	// builds one, under the lock that guards the transports. Report it, and
+	// RoundTrip drops the transport and sends the request again, on one set up
+	// for what the server speaks now.
+	if cachedKind, ok := rt.cachedKind(addr); ok && cachedKind == negotiatedKind {
+		return conn, nil
 	}
 
-	// No usable http.Transport for this address yet, create one based on the
-	// results of ALPN.
-	rt.cachedTransportsLck.Lock()
-	err = rt.cache(addr, conn)
-	rt.cachedTransportsLck.Unlock()
-	if err != nil {
-		return nil, err
-	}
+	_ = conn.Close()
 
-	return nil, errProtocolNegotiated
+	return nil, fmt.Errorf("%w: %s negotiated %q", errProtocolChanged, addr, negotiatedProtocol)
 }
 
 // handshake dials addr and shakes hands as the profile says, within ctx, and

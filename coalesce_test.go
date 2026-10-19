@@ -499,11 +499,11 @@ func (c *coalescing) awayThenHTTP1(t *testing.T) string {
 	return port
 }
 
-func TestAShareTriedAgainOnAnHTTP1ConnectionOfItsOwnIsDropped(t *testing.T) {
+func TestAShareTriedAgainOnAnHTTP1ConnectionOfItsOwnGoesOverHTTP1(t *testing.T) {
 	// b.test goes out on a.test's connection, which leaves it unprocessed;
-	// tried again, it dials, and its server speaks HTTP/1.1: that request
-	// fails as any does whose host changed protocol, and the next is sent
-	// over HTTP/1.1.
+	// tried again, it dials, and its server speaks HTTP/1.1: the shared
+	// transport is dropped for it, and the request goes again over HTTP/1.1,
+	// as any does whose host changed protocol, and so does the next.
 	c := newCoalescing(t)
 	port := c.awayThenHTTP1(t)
 	var l lookups
@@ -511,10 +511,9 @@ func TestAShareTriedAgainOnAnHTTP1ConnectionOfItsOwnIsDropped(t *testing.T) {
 	if _, err := from(client, "https://a.test:"+port+"/"); err != nil {
 		t.Fatalf("a.test: %v", err)
 	}
-	if got, err := from(client, "https://b.test:"+port+"/"); !errors.Is(err, errProtocolChanged) {
-		t.Errorf("b.test: %q, %v", got, err)
-	}
-	if got, err := from(client, "https://b.test:"+port+"/"); err != nil || got != "h1" {
-		t.Errorf("b.test again: %q, %v", got, err)
+	for _, which := range []string{"b.test", "b.test again"} {
+		if got, err := from(client, "https://b.test:"+port+"/"); err != nil || got != "h1" {
+			t.Errorf("%s: %q, %v", which, got, err)
+		}
 	}
 }
