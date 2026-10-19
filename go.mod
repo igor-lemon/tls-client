@@ -6,9 +6,9 @@ require (
 	github.com/bdandy/go-socks4 v1.2.3
 	github.com/bogdanfinn/utls v1.7.8-barnius
 	github.com/google/uuid v1.6.0
-	github.com/igor-lemon/fhttp v0.6.10-0.20261019084828-31f8ce39ba64
-	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261019085841-fd7679479698
-	github.com/igor-lemon/websocket v1.5.6-barnius.0.20261019085837-b7f681c984f3
+	github.com/igor-lemon/fhttp v0.6.10-0.20261019093434-7747d6a2829c
+	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261019094059-8a3987c07ffc
+	github.com/igor-lemon/websocket v1.5.6-barnius.0.20261019094048-1402225b2549
 	github.com/stretchr/testify v1.11.1
 	github.com/tam7t/hpkp v0.0.0-20160821193359-2b70b4024ed5
 	golang.org/x/net v0.48.0
