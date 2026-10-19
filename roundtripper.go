@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
-	tls "github.com/bogdanfinn/utls"
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/http2"
 	"github.com/igor-lemon/fhttp/http2/hpack"
 	"github.com/igor-lemon/quic-go-utls/http3"
 	"github.com/igor-lemon/tls-client/bandwidth"
 	"github.com/igor-lemon/tls-client/profiles"
+	tls "github.com/igor-lemon/utls"
 	"golang.org/x/net/proxy"
 )
 

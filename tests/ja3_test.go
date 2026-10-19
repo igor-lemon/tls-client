@@ -3,8 +3,8 @@ package tests
 import (
 	"testing"
 
-	utls "github.com/bogdanfinn/utls"
 	"github.com/igor-lemon/tls-client/profiles"
+	utls "github.com/igor-lemon/utls"
 	"github.com/stretchr/testify/assert"
 
 	tls_client "github.com/igor-lemon/tls-client"

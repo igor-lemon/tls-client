@@ -6,9 +6,9 @@ import (
 	"net/netip"
 	"strconv"
 
-	tls "github.com/bogdanfinn/utls"
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/http2"
+	tls "github.com/igor-lemon/utls"
 )
 
 // Connection coalescing (WithConnectionCoalescing): a request to a host goes

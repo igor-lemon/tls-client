@@ -20,10 +20,10 @@ import (
 	"testing"
 	"time"
 
-	tls "github.com/bogdanfinn/utls"
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/http2"
 	"github.com/igor-lemon/tls-client/profiles"
+	tls "github.com/igor-lemon/utls"
 	"github.com/tam7t/hpkp"
 	xhttp2 "golang.org/x/net/http2"
 	xhpack "golang.org/x/net/http2/hpack"

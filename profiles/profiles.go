@@ -3,9 +3,9 @@ package profiles
 import (
 	"time"
 
-	tls "github.com/bogdanfinn/utls"
 	"github.com/igor-lemon/fhttp/http2"
 	"github.com/igor-lemon/fhttp/http2/hpack"
+	tls "github.com/igor-lemon/utls"
 )
 
 var DefaultClientProfile = Chrome_150
