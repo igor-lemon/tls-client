@@ -113,3 +113,12 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   catalogue profile is, another connection, as before. tls-forge sets it for
   Chromium. Tests in `framing_test.go` and `profiles/framing_test.go`; that
   the transport waits as Chrome does is held end to end in tls-forge.
+- **A client that sets no deadline of its own on a request**
+  (`WithoutRequestTimeout`): the client's `http.Client` sets no timer, and
+  each request ends with its context, which its caller gives a deadline; the
+  timeout still bounds each dial. Two timers at one deadline raced: the
+  client's said `net/http: request canceled (Client.Timeout exceeded while
+  awaiting headers)`, which no `errors.Is(err, context.DeadlineExceeded)`
+  finds. Unset, as before. tls-forge sets it, and gives each request one
+  deadline for all of it. Tests in `requesttimeout_test.go`; 2 mutants, all
+  killed.

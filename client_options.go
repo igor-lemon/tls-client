@@ -96,6 +96,7 @@ type httpClientConfig struct {
 	serverNameOverwrite         string
 	clientProfile               profiles.ClientProfile
 	timeout                     time.Duration
+	withoutRequestTimeout       bool
 	catchPanics                 bool
 	debug                       bool
 	followRedirects             bool
@@ -211,6 +212,15 @@ func WithTimeoutSeconds(timeout int) HttpClientOption {
 func WithTimeout(timeout int) HttpClientOption {
 	return func(config *httpClientConfig) {
 		config.timeout = time.Second * time.Duration(timeout)
+	}
+}
+
+// WithoutRequestTimeout has the client set no deadline of its own on a
+// request: each ends with its context, which its caller gives one. The
+// timeout still bounds each dial, as the dialers take it.
+func WithoutRequestTimeout() HttpClientOption {
+	return func(config *httpClientConfig) {
+		config.withoutRequestTimeout = true
 	}
 }
 
