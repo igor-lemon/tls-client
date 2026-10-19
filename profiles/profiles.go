@@ -119,6 +119,9 @@ type ClientProfile struct {
 	// dynamicRecordSizingDisabled has TLS write records as large as what is
 	// written allows from a connection's first byte.
 	dynamicRecordSizingDisabled bool
+	// falseStart has a TLS 1.2 connection send its first request before the
+	// server's Finished where BoringSSL would (tls.Config.FalseStart).
+	falseStart bool
 	// maxMergedHeadAndBody has an HTTP/1.1 request's head written at once,
 	// with a body held in memory when the two are no more than that.
 	maxMergedHeadAndBody int

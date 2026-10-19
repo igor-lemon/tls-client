@@ -73,6 +73,8 @@ type roundTripper struct {
 	// dynamicRecordSizingDisabled has TLS write records as large as what is
 	// written allows from a connection's first byte.
 	dynamicRecordSizingDisabled bool
+	// falseStart is every connection's tls.Config.FalseStart.
+	falseStart bool
 	// maxMergedHeadAndBody is the HTTP/1.1 transport's MaxMergedHeadAndBody.
 	maxMergedHeadAndBody int
 	// strictMaxConcurrentStreams is the HTTP/2 transport's
@@ -522,7 +524,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 			break
 		}
 		utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-			DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled}
+			DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart}
 		if rt.transportOptions != nil {
 			utlsConfig.RootCAs = rt.transportOptions.RootCAs
 			utlsConfig.Certificates = rt.transportOptions.Certificates
@@ -724,7 +726,7 @@ func (rt *roundTripper) handshake(ctx context.Context, network, addr string) (*t
 	}
 
 	tlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, ServerName: host, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled}
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart}
 	if rt.transportOptions != nil {
 		tlsConfig.RootCAs = rt.transportOptions.RootCAs
 		tlsConfig.KeyLogWriter = rt.transportOptions.KeyLogWriter
@@ -818,7 +820,7 @@ func (rt *roundTripper) dial(ctx context.Context, network, addr string) (net.Con
 
 func (rt *roundTripper) buildHttp1Transport() *http.Transport {
 	utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled}
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart}
 	if rt.transportOptions != nil {
 		utlsConfig.RootCAs = rt.transportOptions.RootCAs
 		utlsConfig.Certificates = rt.transportOptions.Certificates
@@ -892,6 +894,7 @@ func (rt *roundTripper) dialTLSForWebsocket(ctx context.Context, network, addr s
 		InsecureSkipVerify:          rt.insecureSkipVerify,
 		OmitEmptyPsk:                true,
 		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled,
+		FalseStart:                  rt.falseStart,
 	}
 	if rt.transportOptions != nil {
 		tlsConfig.RootCAs = rt.transportOptions.RootCAs
@@ -957,6 +960,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		maxHeaderFramePayload:       clientProfile.GetMaxHeaderFramePayload(),
 		maxDataFramePayload:         clientProfile.GetMaxDataFramePayload(),
 		dynamicRecordSizingDisabled: clientProfile.GetDynamicRecordSizingDisabled(),
+		falseStart:                  clientProfile.GetFalseStart(),
 		maxMergedHeadAndBody:        clientProfile.GetMaxMergedHeadAndBody(),
 		strictMaxConcurrentStreams:  clientProfile.GetStrictMaxConcurrentStreams(),
 		pseudoHeaderOrder:           clientProfile.GetPseudoHeaderOrder(),
