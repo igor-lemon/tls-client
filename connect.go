@@ -53,8 +53,69 @@ func newSocksContextDialer(socksDialer proxy.Dialer) socksContextDialer {
 	}
 }
 
+// DialContext dials address through the proxy within ctx. SOCKS5's dialer
+// takes ctx, its talk with the proxy too. SOCKS4's takes none: the request
+// waits for it no longer than ctx lets it, a connection it makes after that
+// is closed, and its talk with the proxy ends at the dial's timeout
+// (deadlineDialer).
 func (s *socksContextDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	return s.socksDialer.Dial(network, address)
+	if d, ok := s.socksDialer.(proxy.ContextDialer); ok {
+		return d.DialContext(ctx, network, address)
+	}
+
+	type dialed struct {
+		conn net.Conn
+		err  error
+	}
+	done := make(chan dialed, 1)
+	go func() {
+		conn, err := s.socksDialer.Dial(network, address)
+		done <- dialed{conn, err}
+	}()
+
+	select {
+	case d := <-done:
+		if d.err != nil {
+			return nil, d.err
+		}
+		_ = d.conn.SetDeadline(time.Time{})
+		return d.conn, nil
+	case <-ctx.Done():
+		go func() {
+			if d := <-done; d.err == nil {
+				_ = d.conn.Close()
+			}
+		}()
+		return nil, ctx.Err()
+	}
+}
+
+// contextOr is why ctx ended, when it did, what cut a dial short; else err.
+func contextOr(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		// Past it, though its own timer has yet to say so: a connection's
+		// deadline set to the same time went off first.
+		return context.DeadlineExceeded
+	}
+	return err
+}
+
+// deadlineDialer dials as its dialer does, and gives each connection a
+// deadline of the dialer's timeout, for a talk over it that takes no context:
+// a SOCKS4 proxy's. Whoever takes the connection clears it.
+type deadlineDialer struct {
+	dialer net.Dialer
+}
+
+func (d *deadlineDialer) Dial(network, address string) (net.Conn, error) {
+	conn, err := d.dialer.Dial(network, address)
+	if err == nil && d.dialer.Timeout > 0 {
+		_ = conn.SetDeadline(time.Now().Add(d.dialer.Timeout))
+	}
+	return conn, err
 }
 
 // Copyright 2018 Google Inc.
@@ -175,7 +236,7 @@ func handleSocks5ProxyDialer(proxyUrl *url.URL, dialer net.Dialer) (proxy.Contex
 }
 
 func handleSocks4ProxyDialer(proxyUrl *url.URL, dialer net.Dialer) (proxy.ContextDialer, error) {
-	socks4Dialer, err := proxy.FromURL(proxyUrl, &dialer)
+	socks4Dialer, err := proxy.FromURL(proxyUrl, &deadlineDialer{dialer: dialer})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create socks4 proxy dialer: %w", err)
 	}
@@ -243,6 +304,8 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 			_ = rawConn.Close()
 			return nil, err
 		}
+		// And no longer than the request is wanted.
+		stop := context.AfterFunc(ctx, func() { _ = rawConn.SetDeadline(time.Now()) })
 
 		err = req.Write(rawConn)
 		if err != nil {
@@ -269,6 +332,9 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 			return nil, errors.New("Proxy responded with non 200 code: " + resp.Status)
 		}
 
+		// A request let go of as the proxy answered may find the deadline
+		// past: it is no longer wanted.
+		stop()
 		rawConn.SetDeadline(time.Time{})
 
 		return rawConn, nil
@@ -317,14 +383,11 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 				NextProtos: []string{"h2", "http/1.1"},
 				ServerName: c.ProxyUrl.Hostname(),
 			}
-			tlsConn, err := tls.Dial(network, c.ProxyUrl.Host, &tlsConf)
+			dialed, err := (&tls.Dialer{Config: &tlsConf}).DialContext(ctx, network, c.ProxyUrl.Host)
 			if err != nil {
 				return nil, err
 			}
-			err = tlsConn.HandshakeContext(ctx)
-			if err != nil {
-				return nil, err
-			}
+			tlsConn := dialed.(*tls.Conn)
 			negotiatedProtocol = tlsConn.ConnectionState().NegotiatedProtocol
 			rawConn = tlsConn
 		}

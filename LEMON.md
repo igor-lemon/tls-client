@@ -122,3 +122,34 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   finds. Unset, as before. tls-forge sets it, and gives each request one
   deadline for all of it. Tests in `requesttimeout_test.go`; 2 mutants, all
   killed.
+- **Dials that end with their requests' contexts, each address apart**
+  (`roundtripper.go`): the HTTP/2 transport dials a connection after a host's
+  first within the context of the request it is for (fhttp's
+  `http2.Transport.DialTLSContext`), where it dialed with none; the first
+  dial to an address, which finds out what its server speaks, holds no lock
+  while it dials (`setUp`, `discover`, `cache`), and the requests to that
+  address wait for it no longer than their contexts let them, a failed one
+  leaving the next to dial for itself (`setups`); the connections to one
+  address are dialed one after another, as every connection was, apart from
+  every other address's (`lockDial`, `dialLocks`, waited for no longer than
+  the context lets it); a dial through a proxy cut short by its context says
+  so (`contextOr`). Before, a server that took the TCP connection and never
+  answered the handshake held the request, past its deadline, and every
+  other dial of the client, for good; and the first dial to an address held
+  `cachedTransportsLck`, every request of the client and
+  `CloseIdleConnections` with it. A connection a setup stashed for a
+  transport since dropped is closed by the next setup, where `getTransport`
+  panicked on it. `getTransport` keeps its contract for the protocol racer,
+  which holds the lock itself. Tests in `dialcontext_test.go`
+  (`waitingForSetup` is their seam); 15 mutants, all killed.
+- **A dial through a proxy that ends with its request's context**
+  (`connect.go`): SOCKS5's (x/net's dialer, which takes the context, where
+  `Dial` was called with none), SOCKS4's (which takes none: the request
+  waits for it no longer than its context, a connection made after that is
+  closed, and the talk with the proxy ends at the dial's timeout,
+  `deadlineDialer`), an HTTPS proxy's handshake (`tls.Dialer.DialContext`,
+  where `tls.Dial` took none) and the CONNECT over an HTTP proxy (its
+  deadline brought forward when the context ends). Before, a proxy that took
+  the connection and never answered held the request for good, but an HTTP
+  proxy's CONNECT, for the timeout. Tests in `proxycontext_test.go`; 11
+  mutants, all killed.
