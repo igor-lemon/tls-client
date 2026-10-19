@@ -176,3 +176,14 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   killed. A server that changes its protocol on every connection, with many
   requests at once taking each other's connections, can still fail a few
   of them after three changes.
+- **A profile says whether it false starts**
+  (`ClientProfile.WithFalseStart`, `GetFalseStart`, `profiles/falsestart.go`):
+  every utls configuration the round tripper builds says
+  `tls.Config.FalseStart` as the profile does, the one each connection shakes
+  hands with (`handshake`, `dialTLSForWebsocket`) and the ones the HTTP/2 and
+  HTTP/1.1 transports keep (`cache`, `buildHttp1Transport`). The fork of utls
+  sends a TLS 1.2 connection's first request before the server's Finished
+  where BoringSSL would, and reads the Finished with the first read. Tests
+  in `falsestart_test.go` (a request's connection and a websocket's, set and
+  not, against a TLS 1.2 server whose Finished waits; the transports'
+  configurations); 7 mutants, all killed.
