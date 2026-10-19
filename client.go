@@ -284,8 +284,13 @@ func buildFromConfig(logger Logger, config *httpClientConfig) (*http.Client, pro
 	}
 	transport.(*roundTripper).coalesceWith(config.lookup)
 
+	timeout := config.timeout
+	if config.withoutRequestTimeout {
+		// Each request ends with its context; the timeout bounds the dials.
+		timeout = 0
+	}
 	client := &http.Client{
-		Timeout:       config.timeout,
+		Timeout:       timeout,
 		Transport:     transport,
 		CheckRedirect: redirectFunc,
 	}
