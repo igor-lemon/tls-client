@@ -30,3 +30,16 @@ func TestTheHTTP1TransportWritesAsItsProfileSays(t *testing.T) {
 		}
 	}
 }
+
+func TestTheRoundTripperWaitsForAStreamAsItsProfileSays(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		rt, err := newRoundTripper(profiles.Chrome_133.WithStrictMaxConcurrentStreams(strict), nil,
+			"", false, false, false, false, false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := rt.(*roundTripper).strictMaxConcurrentStreams; got != strict {
+			t.Errorf("a profile strict %v: the round tripper is %v", strict, got)
+		}
+	}
+}

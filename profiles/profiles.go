@@ -122,6 +122,10 @@ type ClientProfile struct {
 	// maxMergedHeadAndBody has an HTTP/1.1 request's head written at once,
 	// with a body held in memory when the two are no more than that.
 	maxMergedHeadAndBody int
+	// strictMaxConcurrentStreams has a request wait for a stream on a
+	// connection the round tripper holds once the server's
+	// MAX_CONCURRENT_STREAMS are all in use.
+	strictMaxConcurrentStreams bool
 }
 
 func NewClientProfile(clientHelloId tls.ClientHelloID, settings map[http2.SettingID]uint32, settingsOrder []http2.SettingID, pseudoHeaderOrder []string, connectionFlow uint32, priorities []http2.Priority, headerPriority *http2.PriorityParam, streamID uint32, allowHTTP bool, http3Settings map[uint64]uint64, http3SettingsOrder []uint64, http3PriorityParam uint32, http3PseudoHeaderOrder []string, http3SendGreaseFrames bool) ClientProfile {
