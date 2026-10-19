@@ -12,6 +12,8 @@ github.com/bogdanfinn/utls v1.8.2-barnius h1:ypYWUe4gklEgdBYP+cZAfoG/hhVUMG6ot/p
 github.com/bogdanfinn/utls v1.8.2-barnius/go.mod h1:piJQqN3RvYCC1Bvh5kqhaAhJ+DC1i7PRJDfPKiZsiF8=
 github.com/bogdanfinn/websocket v1.5.9-barnius h1:KY6PMx2I3WspLKJ++wPF5TNhd/fxqu5IpYU+lfH5DbM=
 github.com/bogdanfinn/websocket v1.5.9-barnius/go.mod h1:Ay6DcmnKVlpGsLhBucpap77R2e30O//zw7ggH4HIn0o=
+github.com/cloudflare/circl v1.6.2 h1:hL7VBpHHKzrV5WTfHCaBsgx/HGbBYlgrwvNXEVDYYsQ=
+github.com/cloudflare/circl v1.6.2/go.mod h1:2eXP6Qfat4O/Yhh8BznvKnJ+uzEoTQ6jVKJRn81BiS4=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -75,6 +77,14 @@ github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261019130513-39685ecdc476 h1
 github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261019130513-39685ecdc476/go.mod h1:mPTBkac+xu7TcvPQL+nKh+WJDeVzSjyfSDW1v1CQHgI=
 github.com/igor-lemon/websocket v1.5.6-barnius.0.20261019130511-7d12c3075c7c h1:xBs5A5h4vCNBke4OnFNBNgGSehOK00ovckmjyU/0fq8=
 github.com/igor-lemon/websocket v1.5.6-barnius.0.20261019130511-7d12c3075c7c/go.mod h1:FX4+3PiWMolbQNZoNOxT4k8nHZgqXJzfDjw3tJlc9jM=
+github.com/igor-lemon/fhttp v0.6.10-0.20261019141341-bd9ea92137d1 h1:Tlq43ML5u5w8f8xzeILWekPn2VmFcXusBmZ0A0NSObs=
+github.com/igor-lemon/fhttp v0.6.10-0.20261019141341-bd9ea92137d1/go.mod h1:17oUTaknX7enE5Je+uGImMRnFzm9W3L0smF8HgVeeNs=
+github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261019141441-e46716ffebf5 h1:9eqiG+2cZD3WdIJyVTn1BX3JEMWXj7Zw5yxDAdUdpK4=
+github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261019141441-e46716ffebf5/go.mod h1:Y9XfFft3HeyQsMR2IYi6Qm5hvKzpuKbG5NaH473hht0=
+github.com/igor-lemon/utls v1.7.8-barnius.0.20261019134924-8ce0abf27ca1 h1:WqGibydRI7rIq5+PidWmhuw1zEz/iAKAcs/GToM0Ybw=
+github.com/igor-lemon/utls v1.7.8-barnius.0.20261019134924-8ce0abf27ca1/go.mod h1:2XKENhNpqHSvQA4rB7ccoJI8y/fTD98P+Nl82juLl6U=
+github.com/igor-lemon/websocket v1.5.6-barnius.0.20261019141439-6da9c97e8451 h1:2Ximw4bEBX5aI7JUj6m96Qmu42aREwnfMxQnMcw5spU=
+github.com/igor-lemon/websocket v1.5.6-barnius.0.20261019141439-6da9c97e8451/go.mod h1:iGT0zRCzEdjoT6kN7gjpIsINLtwZIbCxiYXHtbK3+zc=
 github.com/klauspost/compress v1.18.2 h1:iiPHWW0YrcFgpBYhsA6D1+fqHssJscY/Tm/y2Uqnapk=
 github.com/klauspost/compress v1.18.2/go.mod h1:R0h/fSBs8DE4ENlcrlib3PsXS61voFxhIs2DeRhCvJ4=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
