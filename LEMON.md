@@ -187,3 +187,23 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   in `falsestart_test.go` (a request's connection and a websocket's, set and
   not, against a TLS 1.2 server whose Finished waits; the transports'
   configurations); 7 mutants, all killed.
+- **A proxy's connections through a wrapper of the caller's**
+  (`WithProxyConnWrapper`, a `ProxyConnWrapper`, `connect.go`): every TCP
+  connection the client dials to its proxy goes through the wrapper, with
+  the context of the request it is for and when its dial began, before the
+  client says a word over it, and the client talks to the proxy over what
+  the wrapper returns: an HTTP proxy's (the CONNECT), an HTTPS proxy's under
+  its TLS (dialed as `tls.Dialer` dialed it, with no dialer of the client's,
+  then `tls.Client` and `HandshakeContext`), SOCKS5's and SOCKS5h's (x/net's
+  dialer over `wrappingDialer`) and SOCKS4's and SOCKS4a's (a go-socks4
+  dialer for each dial, over a `deadlineDialer` of its context, which hands
+  the wrapper nothing when that context ended before the connection was
+  made: the dial was given up on, and the connection is closed). A dial that
+  fails hands it nothing. Not a dialer of the caller's own (a proxy dialer
+  factory, `WithDialContext`), nor HTTP/3's UDP association through SOCKS5.
+  Unset, as before, and the dials' contexts and deadlines (S01) as they
+  were. tls-forge taps a SOCKS proxy's connections with it for `fetch
+  --pcap`. Tests in `proxyconnwrapper_test.go` (every scheme, with and
+  without a password, the handshake each way and the site's TLS after it,
+  when the dial began; a failed dial, an ended context, a SOCKS4 dial that
+  connects after its request gave up, `SetProxy`); 26 mutants, all killed.

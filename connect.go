@@ -44,12 +44,14 @@ func (d *directDialer) DialContext(ctx context.Context, network, addr string) (n
 }
 
 type socksContextDialer struct {
-	socksDialer proxy.Dialer
+	// within is the dialer of a dial within a context: SOCKS5's one, SOCKS4's
+	// one of the dial's own.
+	within func(ctx context.Context) proxy.Dialer
 }
 
 func newSocksContextDialer(socksDialer proxy.Dialer) socksContextDialer {
 	return socksContextDialer{
-		socksDialer: socksDialer,
+		within: func(context.Context) proxy.Dialer { return socksDialer },
 	}
 }
 
@@ -59,7 +61,8 @@ func newSocksContextDialer(socksDialer proxy.Dialer) socksContextDialer {
 // is closed, and its talk with the proxy ends at the dial's timeout
 // (deadlineDialer).
 func (s *socksContextDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	if d, ok := s.socksDialer.(proxy.ContextDialer); ok {
+	socksDialer := s.within(ctx)
+	if d, ok := socksDialer.(proxy.ContextDialer); ok {
 		return d.DialContext(ctx, network, address)
 	}
 
@@ -69,7 +72,7 @@ func (s *socksContextDialer) DialContext(ctx context.Context, network, address s
 	}
 	done := make(chan dialed, 1)
 	go func() {
-		conn, err := s.socksDialer.Dial(network, address)
+		conn, err := socksDialer.Dial(network, address)
 		done <- dialed{conn, err}
 	}()
 
@@ -105,17 +108,59 @@ func contextOr(ctx context.Context, err error) error {
 
 // deadlineDialer dials as its dialer does, and gives each connection a
 // deadline of the dialer's timeout, for a talk over it that takes no context:
-// a SOCKS4 proxy's. Whoever takes the connection clears it.
+// a SOCKS4 proxy's. Whoever takes the connection clears it. Each goes through
+// wrap, when set, with ctx, the context of the dial it is for, unless that
+// ended before it connected: the dial has been given up on, and the
+// connection is closed (socksContextDialer).
 type deadlineDialer struct {
 	dialer net.Dialer
+	ctx    context.Context
+	wrap   ProxyConnWrapper
 }
 
 func (d *deadlineDialer) Dial(network, address string) (net.Conn, error) {
+	began := time.Now()
 	conn, err := d.dialer.Dial(network, address)
-	if err == nil && d.dialer.Timeout > 0 {
+	if err != nil {
+		return nil, err
+	}
+	if d.ctx.Err() == nil {
+		conn = wrapConn(d.ctx, d.wrap, conn, began)
+	}
+	if d.dialer.Timeout > 0 {
 		_ = conn.SetDeadline(time.Now().Add(d.dialer.Timeout))
 	}
-	return conn, err
+	return conn, nil
+}
+
+// wrappingDialer dials as its dialer does, within the context it is given,
+// and each connection goes through wrap, when set: SOCKS5's connection to its
+// proxy, which x/net's dialer talks over within that context.
+type wrappingDialer struct {
+	dialer net.Dialer
+	wrap   ProxyConnWrapper
+}
+
+func (d *wrappingDialer) Dial(network, address string) (net.Conn, error) {
+	return d.DialContext(context.Background(), network, address)
+}
+
+func (d *wrappingDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	began := time.Now()
+	conn, err := d.dialer.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return wrapConn(ctx, d.wrap, conn, began), nil
+}
+
+// wrapConn is conn, dialed to a proxy within ctx from began, as wrap has the
+// client talk over it, or as it is without a wrap.
+func wrapConn(ctx context.Context, wrap ProxyConnWrapper, conn net.Conn, began time.Time) net.Conn {
+	if wrap == nil {
+		return conn
+	}
+	return wrap(ctx, conn, began)
 }
 
 // Copyright 2018 Google Inc.
@@ -151,12 +196,15 @@ type connectDialer struct {
 	Timeout           time.Duration
 	cacheH2Mu         sync.Mutex
 	EnableH2ConnReuse bool
+
+	// wrap is what each connection to the proxy goes through; nil, nothing.
+	wrap ProxyConnWrapper
 }
 
 // newConnectDialer creates a dialer to issue CONNECT requests and tunnel traffic via HTTP/S proxy.
 // proxyUrlStr must provide Scheme and Host, may provide credentials and port.
 // Example: https://username:password@golang.org:443
-func newConnectDialer(proxyUrlStr string, timeout time.Duration, localAddr *net.TCPAddr, configDialer net.Dialer, connectHeaders http.Header, logger Logger) (proxy.ContextDialer, error) {
+func newConnectDialer(proxyUrlStr string, timeout time.Duration, localAddr *net.TCPAddr, configDialer net.Dialer, connectHeaders http.Header, wrap ProxyConnWrapper, logger Logger) (proxy.ContextDialer, error) {
 	proxyUrl, err := url.Parse(proxyUrlStr)
 	if err != nil {
 		return nil, err
@@ -183,9 +231,9 @@ func newConnectDialer(proxyUrlStr string, timeout time.Duration, localAddr *net.
 			proxyUrl.Host = net.JoinHostPort(proxyUrl.Host, "443")
 		}
 	case "socks4", "socks4a":
-		return handleSocks4ProxyDialer(proxyUrl, _dialer)
+		return handleSocks4ProxyDialer(proxyUrl, _dialer, wrap)
 	case "socks5", "socks5h":
-		return handleSocks5ProxyDialer(proxyUrl, _dialer)
+		return handleSocks5ProxyDialer(proxyUrl, _dialer, wrap)
 	case "":
 		return nil, errors.New("specify scheme explicitly (https://)")
 	default:
@@ -199,6 +247,7 @@ func newConnectDialer(proxyUrlStr string, timeout time.Duration, localAddr *net.
 		Timeout:           timeout,
 		DefaultHeader:     connectHeaders.Clone(),
 		EnableH2ConnReuse: true,
+		wrap:              wrap,
 	}
 
 	if proxyUrl.User != nil {
@@ -213,7 +262,7 @@ func newConnectDialer(proxyUrlStr string, timeout time.Duration, localAddr *net.
 	return dialer, nil
 }
 
-func handleSocks5ProxyDialer(proxyUrl *url.URL, dialer net.Dialer) (proxy.ContextDialer, error) {
+func handleSocks5ProxyDialer(proxyUrl *url.URL, dialer net.Dialer, wrap ProxyConnWrapper) (proxy.ContextDialer, error) {
 	var proxyAuth *proxy.Auth
 	if proxyUrl.User != nil {
 		password, _ := proxyUrl.User.Password()
@@ -225,7 +274,7 @@ func handleSocks5ProxyDialer(proxyUrl *url.URL, dialer net.Dialer) (proxy.Contex
 		proxyAuth = nil
 	}
 
-	socksDialer, err := proxy.SOCKS5("tcp", proxyUrl.Host, proxyAuth, &dialer)
+	socksDialer, err := proxy.SOCKS5("tcp", proxyUrl.Host, proxyAuth, &wrappingDialer{dialer: dialer, wrap: wrap})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create socks5 proxy: %w", err)
 	}
@@ -235,13 +284,18 @@ func handleSocks5ProxyDialer(proxyUrl *url.URL, dialer net.Dialer) (proxy.Contex
 	return &scd, nil
 }
 
-func handleSocks4ProxyDialer(proxyUrl *url.URL, dialer net.Dialer) (proxy.ContextDialer, error) {
-	socks4Dialer, err := proxy.FromURL(proxyUrl, &deadlineDialer{dialer: dialer})
-	if err != nil {
+func handleSocks4ProxyDialer(proxyUrl *url.URL, dialer net.Dialer, wrap ProxyConnWrapper) (proxy.ContextDialer, error) {
+	if _, err := proxy.FromURL(proxyUrl, &deadlineDialer{dialer: dialer}); err != nil {
 		return nil, fmt.Errorf("failed to create socks4 proxy dialer: %w", err)
 	}
 
-	scd := newSocksContextDialer(socks4Dialer)
+	// A dialer of go-socks4's for each dial, made as that one was, over a
+	// deadlineDialer of the dial's context, which hands its connection to the
+	// proxy to wrap with that context.
+	scd := socksContextDialer{within: func(ctx context.Context) proxy.Dialer {
+		socks4Dialer, _ := proxy.FromURL(proxyUrl, &deadlineDialer{dialer: dialer, ctx: ctx, wrap: wrap})
+		return socks4Dialer
+	}}
 	return &scd, nil
 }
 
@@ -367,11 +421,13 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 	negotiatedProtocol := ""
 	switch c.ProxyUrl.Scheme {
 	case "http":
+		began := time.Now()
 		rawConn, err = c.Dialer.DialContext(ctx, network, c.ProxyUrl.Host)
 
 		if err != nil {
 			return nil, err
 		}
+		rawConn = wrapConn(ctx, c.wrap, rawConn, began)
 	case "https":
 		if c.DialTLS != nil {
 			rawConn, negotiatedProtocol, err = c.DialTLS(network, c.ProxyUrl.Host)
@@ -383,11 +439,20 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 				NextProtos: []string{"h2", "http/1.1"},
 				ServerName: c.ProxyUrl.Hostname(),
 			}
-			dialed, err := (&tls.Dialer{Config: &tlsConf}).DialContext(ctx, network, c.ProxyUrl.Host)
+			// As tls.Dialer dials with no dialer of its own, the TCP
+			// connection through the wrapper.
+			began := time.Now()
+			var tcp net.Dialer
+			dialed, err := tcp.DialContext(ctx, network, c.ProxyUrl.Host)
 			if err != nil {
 				return nil, err
 			}
-			tlsConn := dialed.(*tls.Conn)
+			dialed = wrapConn(ctx, c.wrap, dialed, began)
+			tlsConn := tls.Client(dialed, &tlsConf)
+			if err := tlsConn.HandshakeContext(ctx); err != nil {
+				_ = dialed.Close()
+				return nil, err
+			}
 			negotiatedProtocol = tlsConn.ConnectionState().NegotiatedProtocol
 			rawConn = tlsConn
 		}

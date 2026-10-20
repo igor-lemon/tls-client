@@ -108,6 +108,10 @@ type httpClientConfig struct {
 	// round tripper it builds, made of that one; nil, nothing.
 	wrapTransport func(http.RoundTripper) http.RoundTripper
 
+	// wrapProxyConn is what each connection to the proxy goes through; nil,
+	// nothing.
+	wrapProxyConn ProxyConnWrapper
+
 	preHooks  []PreRequestHookFunc
 	postHooks []PostResponseHookFunc
 }
@@ -414,6 +418,30 @@ func WithConnectionCoalescing(lookup LookupFunc) HttpClientOption {
 func WithTransportWrapper(wrap func(http.RoundTripper) http.RoundTripper) HttpClientOption {
 	return func(config *httpClientConfig) {
 		config.wrapTransport = wrap
+	}
+}
+
+// ProxyConnWrapper is what a connection to a proxy goes through: conn,
+// dialed for the request whose context ctx is, the dial having begun at
+// began. What it returns is what the client talks to the proxy over and what
+// the request's tunnel goes through.
+type ProxyConnWrapper func(ctx context.Context, conn net.Conn, began time.Time) net.Conn
+
+// WithProxyConnWrapper has every connection the client dials to its proxy
+// (WithProxyUrl, SetProxy) go through wrap before the client says a word over
+// it: an HTTP or HTTPS proxy's, which a CONNECT goes over, and a SOCKS4,
+// SOCKS4a, SOCKS5 or SOCKS5h proxy's, which the handshake goes over, the
+// TCP connection under any TLS. A dial that fails hands wrap nothing, and so
+// does a SOCKS4 dial that connects after its request stopped waiting for it:
+// that connection is closed. A connection to an HTTPS proxy that speaks
+// HTTP/2 carries later requests' tunnels too, and went through wrap once,
+// with the context of the dial that made it. Not a dialer of the caller's
+// own (WithProxyDialerFactory, WithDialContext), nor HTTP/3's UDP association
+// through a SOCKS5 proxy (WithProtocolRacing). Unset, the client talks to the
+// proxy over the connections it dials.
+func WithProxyConnWrapper(wrap ProxyConnWrapper) HttpClientOption {
+	return func(config *httpClientConfig) {
+		config.wrapProxyConn = wrap
 	}
 }
 
