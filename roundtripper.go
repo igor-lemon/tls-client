@@ -24,10 +24,12 @@ const defaultIdleConnectionTimeout = 90 * time.Second
 const CHROME_MAX_FIELD_SECTION_SIZE = 262144
 
 type roundTripper struct {
-	initialStreamID   uint32
-	allowHTTP         bool
-	clientHelloId     tls.ClientHelloID
-	certificatePinner CertificatePinner
+	chromeBehavior     bool
+	changedConnections map[string]*tls.UConn
+	initialStreamID    uint32
+	allowHTTP          bool
+	clientHelloId      tls.ClientHelloID
+	certificatePinner  CertificatePinner
 
 	dialer proxy.ContextDialer
 
@@ -207,6 +209,12 @@ func (rt *roundTripper) dropCachedTransport(addr string, stale http.RoundTripper
 }
 
 func (rt *roundTripper) CloseIdleConnections() {
+	rt.Lock()
+	for key, conn := range rt.changedConnections {
+		conn.Close()
+		delete(rt.changedConnections, key)
+	}
+	rt.Unlock()
 	rt.cachedTransportsLck.Lock()
 	defer rt.cachedTransportsLck.Unlock()
 
@@ -495,6 +503,14 @@ func (rt *roundTripper) discover(req *http.Request, addr string) (*tls.UConn, er
 	}
 	defer unlock()
 
+	rt.Lock()
+	changed := rt.changedConnections[addr]
+	delete(rt.changedConnections, addr)
+	rt.Unlock()
+	if changed != nil {
+		return changed, nil
+	}
+
 	// One left by a transport since dropped would never be taken up.
 	if stale := rt.takeStashed(addr); stale != nil {
 		_ = stale.Close()
@@ -508,7 +524,7 @@ func (rt *roundTripper) discover(req *http.Request, addr string) (*tls.UConn, er
 // it to take up. cachedTransportsLck is held.
 func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 	if conn == nil {
-		rt.cachedTransports[addr] = rt.buildHttp1Transport()
+		rt.cachedTransports[addr] = rt.forwardHTTPTransport()
 		return nil
 	}
 
@@ -524,7 +540,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 			break
 		}
 		utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-			DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart}
+			DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, ChromeBehavior: rt.chromeBehavior}
 		if rt.transportOptions != nil {
 			utlsConfig.RootCAs = rt.transportOptions.RootCAs
 			utlsConfig.Certificates = rt.transportOptions.Certificates
@@ -541,6 +557,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 		}
 
 		t2 := http2.Transport{
+			ChromeBehavior:  rt.chromeBehavior,
 			DialTLSContext:  rt.dialTLSHTTP2,
 			TLSClientConfig: utlsConfig,
 			ConnectionFlow:  rt.connectionFlow,
@@ -611,6 +628,9 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 		t2.Priorities = rt.priorities
 
 		t2.PushHandler = &http2.DefaultPushHandler{}
+		if enabled, known := t2.Settings[http2.SettingEnablePush]; known && enabled == 0 {
+			t2.PushHandler = nil
+		}
 		if rt.lookup != nil {
 			t2.Coalesce = rt.coalescable
 			rt.shared = &t2
@@ -694,8 +714,12 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 		return conn, nil
 	}
 
-	_ = conn.Close()
-
+	rt.Lock()
+	if previous := rt.changedConnections[addr]; previous != nil {
+		previous.Close()
+	}
+	rt.changedConnections[addr] = conn
+	rt.Unlock()
 	return nil, fmt.Errorf("%w: %s negotiated %q", errProtocolChanged, addr, negotiatedProtocol)
 }
 
@@ -726,7 +750,7 @@ func (rt *roundTripper) handshake(ctx context.Context, network, addr string) (*t
 	}
 
 	tlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, ServerName: host, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart}
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, ChromeBehavior: rt.chromeBehavior}
 	if rt.transportOptions != nil {
 		tlsConfig.RootCAs = rt.transportOptions.RootCAs
 		tlsConfig.KeyLogWriter = rt.transportOptions.KeyLogWriter
@@ -820,7 +844,7 @@ func (rt *roundTripper) dial(ctx context.Context, network, addr string) (net.Con
 
 func (rt *roundTripper) buildHttp1Transport() *http.Transport {
 	utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart}
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, ChromeBehavior: rt.chromeBehavior}
 	if rt.transportOptions != nil {
 		utlsConfig.RootCAs = rt.transportOptions.RootCAs
 		utlsConfig.Certificates = rt.transportOptions.Certificates
@@ -944,6 +968,8 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 	}
 
 	rt := &roundTripper{
+		chromeBehavior:              clientProfile.GetChromeBehavior(),
+		changedConnections:          make(map[string]*tls.UConn),
 		dialer:                      dialer[0],
 		certificatePinner:           pinner,
 		badPinHandlerFunc:           badPinHandlerFunc,

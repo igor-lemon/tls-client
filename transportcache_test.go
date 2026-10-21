@@ -129,10 +129,10 @@ func droppedWhileItDials(t *testing.T, protocol string) {
 		t.Errorf("cached for the address: %v (the first %v)", now, first)
 	}
 	consistent(t, rt)
-	// The first's connection, the one dropped with its transport, and the
-	// one set up for the request.
-	if n := handshakes.Load(); n != 3 {
-		t.Errorf("%d handshakes, want 3", n)
+	// The first's connection, and the one dialed while its transport was
+	// dropped, which the setup for the address takes instead of dialing again.
+	if n := handshakes.Load(); n != 2 {
+		t.Errorf("%d handshakes, want 2", n)
 	}
 }
 
@@ -255,10 +255,10 @@ func TestARequestGoesAgainOnATransportSetUpForWhatTheServerSpeaksNow(t *testing.
 	if _, h1 := cachedFor(rt, addr).(*http.Transport); !h1 {
 		t.Errorf("cached: %T", cachedFor(rt, addr))
 	}
-	// The first; the one that found HTTP/1.1, let go of; the setup's, which
-	// the second request took; the third's.
-	if n := handshakes.Load(); n != 4 {
-		t.Errorf("%d handshakes, want 4", n)
+	// The first; the one that found HTTP/1.1, which the setup takes for the
+	// second request instead of dialing again; the third's.
+	if n := handshakes.Load(); n != 3 {
+		t.Errorf("%d handshakes, want 3", n)
 	}
 }
 
