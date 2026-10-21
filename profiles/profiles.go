@@ -98,6 +98,7 @@ var MappedTLSClients = map[string]ClientProfile{
 }
 
 type ClientProfile struct {
+	chromeBehavior         bool
 	clientHelloId          tls.ClientHelloID
 	headerPriority         *http2.PriorityParam
 	settings               map[http2.SettingID]uint32
@@ -215,6 +216,12 @@ func (c ClientProfile) GetHttp3SendGreaseFrames() bool {
 	return c.http3SendGreaseFrames
 }
 
+// WithChromeBehavior selects measured Chromium TLS and HTTP/2 policies.
+func (c ClientProfile) WithChromeBehavior(enabled bool) ClientProfile {
+	c.chromeBehavior = enabled
+	return c
+}
+func (c ClientProfile) GetChromeBehavior() bool { return c.chromeBehavior }
 // BuildTrustAnchorsPayload turns a captured trust_anchors payload into the data
 // for the extension.
 //
