@@ -209,6 +209,11 @@ func (rt *roundTripper) dropCachedTransport(addr string, stale http.RoundTripper
 }
 
 func (rt *roundTripper) CloseIdleConnections() {
+	defer func() {
+		if d, ok := rt.dialer.(interface{ CloseIdleProxyConnections() }); ok {
+			d.CloseIdleProxyConnections()
+		}
+	}()
 	rt.Lock()
 	for key, conn := range rt.changedConnections {
 		conn.Close()
