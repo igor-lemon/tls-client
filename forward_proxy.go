@@ -2,11 +2,14 @@ package tls_client
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
-	http "github.com/igor-lemon/fhttp"
 	"net"
 	"net/url"
 	"strings"
+
+	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/fhttp/http2"
 )
 
 type forwardProxyDialer interface {
@@ -26,10 +29,51 @@ func (rt *roundTripper) forwardHTTPTransport() http.RoundTripper {
 	}
 	t.Proxy = http.ProxyURL(u)
 	t.DialContext = d.DialProxyContext
-	return forwardProxyTransport{t}
+	t.DialTLSContext = d.DialProxyContext
+	forward := forwardProxyTransport{Transport: t}
+	if u.User != nil {
+		password, _ := u.User.Password()
+		forward.proxyAuth = "Basic " + base64.StdEncoding.EncodeToString([]byte(u.User.Username()+":"+password))
+	}
+	if u.Scheme == "https" {
+		h2, err := http2.ConfigureTransports(t)
+		if err != nil {
+			return forwardProxyFailure{err}
+		}
+		// The no-dial pool returns a lost/changed ALPN connection to the proxy
+		// transport for negotiation. It must never dial an origin directly.
+		h2.AllowHTTP, h2.ChromeBehavior = true, rt.chromeBehavior
+		h2.Settings, h2.SettingsOrder, h2.ConnectionFlow = rt.settings, rt.settingsOrder, rt.connectionFlow
+		h2.HeaderPriority, h2.PseudoHeaderOrder, h2.Priorities = rt.headerPriority, rt.pseudoHeaderOrder, rt.priorities
+		h2.HeaderRepresentation, h2.MaxEncoderHeaderTableSize = rt.headerRepresentation, rt.maxEncoderTableSize
+		h2.WindowUpdateDelay = rt.windowUpdateDelay
+		h2.MaxHeaderFramePayload, h2.MaxDataFramePayload = rt.maxHeaderFramePayload, rt.maxDataFramePayload
+		h2.StrictMaxConcurrentStreams, h2.InitialStreamID = rt.strictMaxConcurrentStreams, rt.initialStreamID
+		h2.DisableCompression, h2.IdleConnTimeout = t.DisableCompression, t.IdleConnTimeout
+		if enabled, known := h2.Settings[http2.SettingEnablePush]; !known || enabled != 0 {
+			h2.PushHandler = &http2.DefaultPushHandler{}
+		}
+		forward.h2 = h2
+	}
+	return forward
 }
 
-type forwardProxyTransport struct{ *http.Transport }
+type forwardProxyTransport struct {
+	*http.Transport
+	h2        *http2.Transport
+	proxyAuth string
+}
+
+type forwardProxyFailure struct{ err error }
+
+func (t forwardProxyFailure) RoundTrip(*http.Request) (*http.Response, error) { return nil, t.err }
+
+func (t forwardProxyTransport) CloseIdleConnections() {
+	t.Transport.CloseIdleConnections()
+	if t.h2 != nil {
+		t.h2.CloseIdleConnections()
+	}
+}
 
 func (t forwardProxyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	copy := *req
@@ -41,6 +85,11 @@ func (t forwardProxyTransport) RoundTrip(req *http.Request) (*http.Response, err
 			}
 		}
 		if protocol != http.ProtocolHTTP1 {
+			if t.proxyAuth != "" {
+				header = header.Clone()
+				header.Set("Proxy-Authorization", t.proxyAuth)
+				header[http.HeaderOrderKey] = append(append([]string(nil), header[http.HeaderOrderKey]...), "proxy-authorization")
+			}
 			return header
 		}
 		header = header.Clone()
@@ -54,8 +103,7 @@ func (t forwardProxyTransport) RoundTrip(req *http.Request) (*http.Response, err
 		found := false
 		for i, name := range order {
 			if strings.EqualFold(name, "connection") {
-				order[i] = "proxy-connection"
-				found = true
+				order[i], found = "proxy-connection", true
 			}
 		}
 		if !found {
