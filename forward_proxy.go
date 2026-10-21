@@ -10,11 +10,19 @@ import (
 
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/http2"
+	tls "github.com/igor-lemon/utls"
 )
 
 type forwardProxyDialer interface {
 	ForwardProxyURL() *url.URL
 	DialProxyContext(context.Context, string, string) (net.Conn, error)
+}
+
+// Implemented by a proxy dialer with one partition-scoped outer H2 pool.
+type sharedForwardProxyDialer interface {
+	RoundTripProxyHTTP(*http.Request, http.RoundTripper) (*http.Response, error)
+	ProxyHTTP2Protocol(*tls.Conn) http.RoundTripper
+	CloseIdleProxyConnections()
 }
 
 func (rt *roundTripper) forwardHTTPTransport() http.RoundTripper {
@@ -36,6 +44,11 @@ func (rt *roundTripper) forwardHTTPTransport() http.RoundTripper {
 		forward.proxyAuth = "Basic " + base64.StdEncoding.EncodeToString([]byte(u.User.Username()+":"+password))
 	}
 	if u.Scheme == "https" {
+		if shared, ok := d.(sharedForwardProxyDialer); ok {
+			forward.shared = shared
+			t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{"h2": func(_ string, c *tls.Conn) http.RoundTripper { return shared.ProxyHTTP2Protocol(c) }}
+			return forward
+		}
 		h2, err := http2.ConfigureTransports(t)
 		if err != nil {
 			return forwardProxyFailure{err}
@@ -62,6 +75,7 @@ type forwardProxyTransport struct {
 	*http.Transport
 	h2        *http2.Transport
 	proxyAuth string
+	shared    sharedForwardProxyDialer
 }
 
 type forwardProxyFailure struct{ err error }
@@ -70,6 +84,9 @@ func (t forwardProxyFailure) RoundTrip(*http.Request) (*http.Response, error) { 
 
 func (t forwardProxyTransport) CloseIdleConnections() {
 	t.Transport.CloseIdleConnections()
+	if t.shared != nil {
+		t.shared.CloseIdleProxyConnections()
+	}
 	if t.h2 != nil {
 		t.h2.CloseIdleConnections()
 	}
@@ -112,7 +129,13 @@ func (t forwardProxyTransport) RoundTrip(req *http.Request) (*http.Response, err
 		header[http.HeaderOrderKey] = order
 		return header
 	}
-	res, err := t.Transport.RoundTrip(&copy)
+	var res *http.Response
+	var err error
+	if t.shared != nil {
+		res, err = t.shared.RoundTripProxyHTTP(&copy, t.Transport)
+	} else {
+		res, err = t.Transport.RoundTrip(&copy)
+	}
 	if err == nil && res.StatusCode == 407 {
 		res.Body.Close()
 		return nil, fmt.Errorf("proxy: HTTP 407 Proxy Authentication Required")
