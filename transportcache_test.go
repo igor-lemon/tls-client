@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	stdhttp "net/http"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,25 +21,79 @@ import (
 // how many handshakes it made.
 func alpnServer(t *testing.T, protocols func(n int32) []string) (string, *atomic.Int32) {
 	t.Helper()
+	url, witness := observedALPNServer(t, protocols)
+	return url, &witness.handshakes
+}
+
+// alpnRequest links an actual peer request to the handshake on its connection.
+// Counting handshakes alone would miss a request lost, duplicated or sent on
+// the wrong connection during a transport replacement.
+type alpnRequest struct {
+	handshake              int32
+	protocol, method, path string
+}
+
+type alpnWitness struct {
+	handshakes  atomic.Int32
+	mu          sync.Mutex
+	connections map[string]int32
+	requests    []alpnRequest
+}
+
+func (w *alpnWitness) saw(t *testing.T, want ...alpnRequest) {
+	t.Helper()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !reflect.DeepEqual(w.requests, want) {
+		t.Errorf("peer requests: %+v, want %+v", w.requests, want)
+	}
+}
+
+func observedALPNServer(t *testing.T, protocols func(n int32) []string) (string, *alpnWitness) {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cert := coalescingCert(t, "a.test")
-	handshakes := new(atomic.Int32)
+	witness := &alpnWitness{connections: make(map[string]int32)}
 	srv := &stdhttp.Server{
-		Handler: stdhttp.HandlerFunc(func(stdhttp.ResponseWriter, *stdhttp.Request) {}),
+		Handler: stdhttp.HandlerFunc(func(_ stdhttp.ResponseWriter, r *stdhttp.Request) {
+			witness.mu.Lock()
+			defer witness.mu.Unlock()
+			witness.requests = append(witness.requests, alpnRequest{
+				handshake: witness.connections[r.RemoteAddr],
+				protocol:  r.TLS.NegotiatedProtocol, method: r.Method, path: r.RequestURI,
+			})
+		}),
 		TLSConfig: &stdtls.Config{Certificates: []stdtls.Certificate{cert},
-			GetConfigForClient: func(*stdtls.ClientHelloInfo) (*stdtls.Config, error) {
+			GetConfigForClient: func(hello *stdtls.ClientHelloInfo) (*stdtls.Config, error) {
+				n := witness.handshakes.Add(1)
+				witness.mu.Lock()
+				witness.connections[hello.Conn.RemoteAddr().String()] = n
+				witness.mu.Unlock()
 				return &stdtls.Config{Certificates: []stdtls.Certificate{cert},
-					NextProtos: protocols(handshakes.Add(1))}, nil
+					NextProtos: protocols(n)}, nil
 			}},
 	}
 	// Every answer ends its connection: each request dials one.
 	srv.SetKeepAlivesEnabled(false)
 	go func() { _ = srv.ServeTLS(ln, "", "") }()
 	t.Cleanup(func() { _ = srv.Close() })
-	return "https://" + ln.Addr().String(), handshakes
+	return "https://" + ln.Addr().String(), witness
+}
+
+// A completed handoff must leave no second owner of the accepted connection.
+func noPendingConnection(t *testing.T, rt *roundTripper, addr string) {
+	t.Helper()
+	rt.Lock()
+	defer rt.Unlock()
+	if rt.changedConnections[addr] != nil || rt.cachedConnections[addr] != nil {
+		t.Errorf("pending connection after handoff for %s", addr)
+	}
+	if _, pending := rt.stashed.Load(addr); pending {
+		t.Errorf("stashed marker after handoff for %s", addr)
+	}
 }
 
 func h2Only(int32) []string { return []string{http2.NextProtoTLS} }
@@ -108,32 +163,50 @@ func TestAConnectionDialedForATransportDroppedMeanwhileBuildsNoOther(t *testing.
 }
 
 func droppedWhileItDials(t *testing.T, protocol string) {
-	url, handshakes := alpnServer(t, func(int32) []string { return []string{protocol} })
+	url, witness := observedALPNServer(t, func(int32) []string { return []string{protocol} })
 	client, rt := cacheClient(t)
 	addr := url[len("https://"):]
-	if err := get(client, url); err != nil {
+	if err := get(client, url+"/first"); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	first := cachedFor(rt, addr)
 	client.CloseIdleConnections()
 	var once sync.Once
+	dropped := false
 	seam(t, &reconnected, func(a string) {
 		if a == addr {
-			once.Do(func() { rt.dropCachedTransport(a, first) })
+			once.Do(func() {
+				if witness.handshakes.Load() != 2 || cachedFor(rt, a) != first {
+					t.Error("drop did not intercept the first transport's replacement dial")
+				}
+				rt.dropCachedTransport(a, first)
+				dropped = true
+				if cachedFor(rt, a) != nil {
+					t.Error("replacement dial built a transport before setup")
+				}
+				consistent(t, rt)
+			})
 		}
 	})
-	if err := get(client, url); err != nil {
+	if err := get(client, url+"/handoff"); err != nil {
 		t.Fatalf("Get: %v", err)
+	}
+	if !dropped {
+		t.Error("replacement dial was not intercepted")
 	}
 	if now := cachedFor(rt, addr); now == nil || now == first {
 		t.Errorf("cached for the address: %v (the first %v)", now, first)
 	}
 	consistent(t, rt)
-	// The first's connection, and the one dialed while its transport was
-	// dropped, which the setup for the address takes instead of dialing again.
-	if n := handshakes.Load(); n != 2 {
+	noPendingConnection(t, rt, addr)
+	// The completed second handshake is handed to the replacement setup;
+	// there must be no discarded connection or third handshake.
+	if n := witness.handshakes.Load(); n != 2 {
 		t.Errorf("%d handshakes, want 2", n)
 	}
+	witness.saw(t,
+		alpnRequest{1, protocol, "GET", "/first"},
+		alpnRequest{2, protocol, "GET", "/handoff"})
 }
 
 func TestDroppingATransportLeavesTheKindOfOneCachedSince(t *testing.T) {
@@ -236,29 +309,54 @@ func TestRequestsGoThroughAServerThatChangesItsProtocolOnEveryConnection(t *test
 }
 
 func TestARequestGoesAgainOnATransportSetUpForWhatTheServerSpeaksNow(t *testing.T) {
-	// HTTP/2 first, HTTP/1.1 since: the request after the change goes out on
-	// a transport set up for it, and the transport after it stays.
-	url, handshakes := alpnServer(t, func(n int32) []string {
-		if n == 1 {
-			return []string{http2.NextProtoTLS}
-		}
-		return []string{"http/1.1"}
-	})
-	client, rt := cacheClient(t)
-	addr := url[len("https://"):]
-	for i := range 3 {
-		if err := get(client, url); err != nil {
-			t.Fatalf("Get %d: %v", i, err)
-		}
-		consistent(t, rt)
-	}
-	if _, h1 := cachedFor(rt, addr).(*http.Transport); !h1 {
-		t.Errorf("cached: %T", cachedFor(rt, addr))
-	}
-	// The first; the one that found HTTP/1.1, which the setup takes for the
-	// second request instead of dialing again; the third's.
-	if n := handshakes.Load(); n != 3 {
-		t.Errorf("%d handshakes, want 3", n)
+	for _, protocols := range [][2]string{{http2.NextProtoTLS, "http/1.1"}, {"http/1.1", http2.NextProtoTLS}} {
+		t.Run(protocols[0]+"-to-"+protocols[1], func(t *testing.T) {
+			url, witness := observedALPNServer(t, func(n int32) []string {
+				if n == 1 {
+					return []string{protocols[0]}
+				}
+				return []string{protocols[1]}
+			})
+			client, rt := cacheClient(t)
+			addr := url[len("https://"):]
+			var first, replacement http.RoundTripper
+			for i, path := range []string{"/first", "/handoff", "/stable"} {
+				if err := get(client, url+path); err != nil {
+					t.Fatalf("Get %d: %v", i, err)
+				}
+				consistent(t, rt)
+				noPendingConnection(t, rt, addr)
+				now := cachedFor(rt, addr)
+				switch i {
+				case 0:
+					first = now
+				case 1:
+					replacement = now
+					if replacement == nil || replacement == first {
+						t.Error("protocol change did not replace the transport")
+					}
+				case 2:
+					if now != replacement {
+						t.Error("stable protocol replaced the transport again")
+					}
+				}
+				// Make the next dial deterministic independently of GOAWAY timing.
+				client.CloseIdleConnections()
+			}
+			kind, ok := rt.cachedKind(addr)
+			if !ok || kind != kindForProtocol(protocols[1]) {
+				t.Errorf("cached kind: %v (%v), want %v", kind, ok, kindForProtocol(protocols[1]))
+			}
+			// One accepted connection per request: the handshake that discovers
+			// the changed ALPN is reused, not discarded and repeated.
+			if n := witness.handshakes.Load(); n != 3 {
+				t.Errorf("%d handshakes, want 3", n)
+			}
+			witness.saw(t,
+				alpnRequest{1, protocols[0], "GET", "/first"},
+				alpnRequest{2, protocols[1], "GET", "/handoff"},
+				alpnRequest{3, protocols[1], "GET", "/stable"})
+		})
 	}
 }
 
