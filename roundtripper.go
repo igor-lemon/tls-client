@@ -289,6 +289,7 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 		t3.Dial = dialChromeQUIC
 		t3.QUICConfig = &quic.Config{
 			ChromeBehavior:             true,
+			Versions:                   []quic.Version{quic.Version1},
 			InitialStreamReceiveWindow: 6 << 20, MaxStreamReceiveWindow: 6 << 20,
 			InitialConnectionReceiveWindow: 15 << 20, MaxConnectionReceiveWindow: 15 << 20,
 			MaxIncomingStreams: 100, MaxIncomingUniStreams: 103,
