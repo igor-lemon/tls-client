@@ -156,6 +156,9 @@ func (c *httpClient) use(rt *roundTripper) {
 }
 
 func validateConfig(config *httpClientConfig) error {
+	if config.profileOverride {
+		return fmt.Errorf("%s: raw client profile override has no compatible engine_major declaration; use the owner profile selection API", config.profileLock)
+	}
 	if config.enableProtocolRacing && config.disableHttp3 {
 		return fmt.Errorf("invalid config: HTTP/3 racing cannot be enabled when HTTP/3 is disabled")
 	}

@@ -82,6 +82,8 @@ type httpClientConfig struct {
 	proxyUrl                    string
 	serverNameOverwrite         string
 	clientProfile               profiles.ClientProfile
+	profileLock                 string
+	profileOverride             bool
 	timeout                     time.Duration
 	withoutRequestTimeout       bool
 	catchPanics                 bool
@@ -322,7 +324,28 @@ func WithProtocolRacing() HttpClientOption {
 // WithClientProfile configures a TLS client to use the specified client profile.
 func WithClientProfile(clientProfile profiles.ClientProfile) HttpClientOption {
 	return func(config *httpClientConfig) {
+		if config.profileLock != "" {
+			config.profileOverride = true
+			return
+		}
 		config.clientProfile = clientProfile
+	}
+}
+
+// WithLockedClientProfile selects an owner's validated profile and prevents
+// subsequent raw profile options from bypassing that owner's compatibility gate.
+// identity is diagnostic context supplied by the owner, not browser policy.
+func WithLockedClientProfile(profile profiles.ClientProfile, identity string) HttpClientOption {
+	return func(config *httpClientConfig) {
+		if config.profileLock != "" {
+			config.profileOverride = true
+			return
+		}
+		config.clientProfile = profile
+		config.profileLock = identity
+		if identity == "" {
+			config.profileLock = "locked profile"
+		}
 	}
 }
 
