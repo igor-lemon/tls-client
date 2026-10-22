@@ -13,6 +13,7 @@ import (
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/http2"
 	"github.com/igor-lemon/fhttp/http2/hpack"
+	quic "github.com/igor-lemon/quic-go-utls"
 	"github.com/igor-lemon/quic-go-utls/http3"
 	"github.com/igor-lemon/tls-client/bandwidth"
 	"github.com/igor-lemon/tls-client/profiles"
@@ -125,6 +126,8 @@ type roundTripper struct {
 
 // http3Config contains all parameters needed to build an HTTP/3 transport
 type http3Config struct {
+	clientHelloID          tls.ClientHelloID
+	chromeBehavior         bool
 	clientSessionCache     tls.ClientSessionCache
 	insecureSkipVerify     bool
 	serverNameOverwrite    string
@@ -254,6 +257,13 @@ func (rt *roundTripper) getHttp3Settings() map[uint64]uint64 {
 }
 
 func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
+	// qpack.Decoder and the encoder-stream handler currently support only the
+	// static table. Refuse unsupported advertisements rather than accepting a
+	// configuration that permits legal peer responses we cannot decode.
+	if cfg.http3Settings[1] > 0 || cfg.http3Settings[7] > 0 {
+		return nil, fmt.Errorf("HTTP/3 dynamic QPACK is unavailable: advertised table capacity and blocked streams must be zero")
+	}
+
 	utlsConfig := &tls.Config{
 		ClientSessionCache: cfg.clientSessionCache,
 		InsecureSkipVerify: cfg.insecureSkipVerify,
@@ -271,6 +281,17 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 	t3 := &http3.Transport{
 		TLSClientConfig: utlsConfig,
 		EnableDatagrams: true, // Chrome enables H3_DATAGRAM (setting 0x33)
+	}
+
+	if cfg.chromeBehavior {
+		utlsConfig.ChromeBehavior = true
+		utlsConfig.QUICClientHelloSpec = chromeQUICSpec(cfg.clientHelloID)
+		t3.QUICConfig = &quic.Config{
+			InitialStreamReceiveWindow: 6 << 20, MaxStreamReceiveWindow: 6 << 20,
+			InitialConnectionReceiveWindow: 15 << 20, MaxConnectionReceiveWindow: 15 << 20,
+			MaxIncomingStreams: 100, MaxIncomingUniStreams: 103,
+			MaxIdleTimeout: 30 * time.Second, InitialPacketSize: 1250, EnableDatagrams: true,
+		}
 	}
 
 	if cfg.proxyURL != "" {
@@ -644,6 +665,8 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 		rt.setCachedKind(addr, transportHTTP2)
 	case http3.NextProtoH3:
 		t3, err := buildHTTP3Transport(&http3Config{
+			chromeBehavior:         rt.chromeBehavior,
+			clientHelloID:          rt.clientHelloId,
 			clientSessionCache:     rt.clientSessionCache,
 			insecureSkipVerify:     rt.insecureSkipVerify,
 			serverNameOverwrite:    rt.serverNameOverwrite,
@@ -731,6 +754,9 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 // handshake dials addr and shakes hands as the profile says, within ctx, and
 // holds the server to the pins it has.
 func (rt *roundTripper) handshake(ctx context.Context, network, addr string) (*tls.UConn, error) {
+	return rt.handshakeAttempt(ctx, network, addr, true)
+}
+func (rt *roundTripper) handshakeAttempt(ctx context.Context, network, addr string, retry bool) (*tls.UConn, error) {
 	if network == "tcp" && rt.disableIPV6 {
 		network = "tcp4"
 	}
@@ -766,9 +792,12 @@ func (rt *roundTripper) handshake(ctx context.Context, network, addr string) (*t
 
 	conn := tls.UClient(rawConn, tlsConfig, rt.clientHelloId, rt.withRandomTlsExtensionOrder, rt.forceHttp1, rt.disableHttp3)
 	if err = conn.HandshakeContext(ctx); err != nil {
+		again := retry && rt.chromeBehavior && ctx.Err() == nil && conn.ChromeHandshakeRetryable()
 		_ = conn.Close()
-
-		return nil, err
+		if again {
+			return rt.handshakeAttempt(ctx, network, addr, false)
+		}
+		return nil, contextOr(ctx, err)
 	}
 
 	err = rt.certificatePinner.Pin(conn, host)
@@ -1040,6 +1069,8 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 			clientProfile.GetHttp3SendGreaseFrames(),
 			proxyURL,
 		)
+		rt.racer.chromeBehavior = rt.chromeBehavior
+		rt.racer.clientHelloID = rt.clientHelloId
 	}
 
 	if len(dialer) > 0 {
