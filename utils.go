@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"github.com/igor-lemon/utls/behavior"
 	"math"
 	"math/big"
 )
@@ -18,22 +19,30 @@ func Int64ToInt(x int64) (int, error) {
 // generateGREASESettingID generates a valid GREASE setting ID
 // GREASE IDs are of the form 0x1f * N + 0x21 where N is random
 // Chrome uses very large N values, producing setting IDs like 57836956465
-func generateGREASESettingID() uint64 {
-	// Generate large N values similar to Chrome (produces 10-11 digit IDs)
-	// N between 1,000,000,000 and 10,000,000,000
-	nBig, _ := rand.Int(rand.Reader, big.NewInt(9000000000))
-	n := uint64(1000000000) + nBig.Uint64()
-	return 0x1f*n + 0x21
-}
+func generateGREASESettingID() uint64 { return generateGREASESettingIDPolicy(behavior.Legacy()) }
 
 // generateGREASESettingValue generates a random non-zero 32-bit value for GREASE
-func generateGREASESettingValue() uint64 {
-	var buf [4]byte
-	rand.Read(buf[:])
-	val := binary.BigEndian.Uint32(buf[:])
-	// Chrome never sends 0
-	if val == 0 {
-		val = 1
+func generateGREASESettingValue() uint64 { return generateGREASESettingValuePolicy(behavior.Legacy()) }
+
+func generateGREASESettingIDPolicy(pol behavior.Policy) uint64 {
+	if pol == nil {
+		return generateGREASESettingID()
 	}
-	return uint64(val)
+	min, max := pol.Uint("h3.grease_setting_n_min"), pol.Uint("h3.grease_setting_n_max")
+	n, err := rand.Int(rand.Reader, new(big.Int).SetUint64(max-min+1))
+	if err != nil {
+		panic(err)
+	}
+	return 31*(min+n.Uint64()) + 33
+}
+func generateGREASESettingValuePolicy(pol behavior.Policy) uint64 {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	v := binary.BigEndian.Uint32(b[:])
+	if v == 0 && pol.Flag("h3.grease_setting_nonzero") {
+		v = 1
+	}
+	return uint64(v)
 }

@@ -28,7 +28,7 @@ type sharedForwardProxyDialer interface {
 func (rt *roundTripper) forwardHTTPTransport() http.RoundTripper {
 	t := rt.buildHttp1Transport()
 	d, ok := rt.dialer.(forwardProxyDialer)
-	if !ok || !rt.chromeBehavior {
+	if !ok || !rt.behavior.Flag("proxy.forward_http") {
 		return t
 	}
 	u := d.ForwardProxyURL()
@@ -55,7 +55,7 @@ func (rt *roundTripper) forwardHTTPTransport() http.RoundTripper {
 		}
 		// The no-dial pool returns a lost/changed ALPN connection to the proxy
 		// transport for negotiation. It must never dial an origin directly.
-		h2.AllowHTTP, h2.ChromeBehavior = true, rt.chromeBehavior
+		h2.AllowHTTP, h2.Behavior = true, rt.behavior.Clone()
 		h2.Settings, h2.SettingsOrder, h2.ConnectionFlow = rt.settings, rt.settingsOrder, rt.connectionFlow
 		h2.HeaderPriority, h2.PseudoHeaderOrder, h2.Priorities = rt.headerPriority, rt.pseudoHeaderOrder, rt.priorities
 		h2.HeaderRepresentation, h2.MaxEncoderHeaderTableSize = rt.headerRepresentation, rt.maxEncoderTableSize
