@@ -264,12 +264,6 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 	if err := pol.Validate(); err != nil {
 		return nil, err
 	}
-	// qpack.Decoder and the encoder-stream handler currently support only the
-	// static table. Refuse unsupported advertisements rather than accepting a
-	// configuration that permits legal peer responses we cannot decode.
-	if cfg.http3Settings[1] > 0 || cfg.http3Settings[7] > 0 {
-		return nil, fmt.Errorf("HTTP/3 dynamic QPACK is unavailable: advertised table capacity and blocked streams must be zero")
-	}
 
 	utlsConfig := &tls.Config{
 		ClientSessionCache: cfg.clientSessionCache,
