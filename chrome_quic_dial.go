@@ -2,6 +2,7 @@ package tls_client
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"net"
 
 	quic "github.com/igor-lemon/quic-go-utls"
@@ -18,6 +19,18 @@ func (emptyQUICConnectionIDs) GenerateConnectionID() (quic.ConnectionID, error) 
 }
 
 func dialChromeQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+	return dialProfileQUIC(ctx, addr, tlsCfg, cfg)
+}
+
+type profileQUICConnectionIDs struct{ length int }
+
+func (g profileQUICConnectionIDs) ConnectionIDLen() int { return g.length }
+func (g profileQUICConnectionIDs) GenerateConnectionID() (quic.ConnectionID, error) {
+	b := make([]byte, g.length)
+	_, err := cryptorand.Read(b)
+	return quic.ConnectionIDFromBytes(b), err
+}
+func dialProfileQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
 	remote, err := resolveUDPAddr(ctx, addr, nil)
 	if err != nil {
 		return nil, err
@@ -33,11 +46,13 @@ func dialChromeQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *q
 		return nil, err
 	}
 	// quic.DialEarly uses a single-use transport that permits zero source IDs.
-	conn, err := quic.DialEarly(ctx, socket, remote, tlsCfg, cfg)
+	transport := &quic.Transport{Conn: socket, ConnectionIDGenerator: profileQUICConnectionIDs{cfg.Policy().Int("quic.source_cid_bytes")}}
+	conn, err := transport.DialEarly(ctx, remote, tlsCfg, cfg)
 	if err != nil {
+		_ = transport.Close()
 		_ = socket.Close()
 		return nil, err
 	}
-	go func() { <-conn.Context().Done(); _ = socket.Close() }()
+	go func() { <-conn.Context().Done(); _ = transport.Close(); _ = socket.Close() }()
 	return conn, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/igor-lemon/utls/behavior"
 	"net"
 	"net/url"
 	"strings"
@@ -26,6 +27,7 @@ const CHROME_MAX_FIELD_SECTION_SIZE = 262144
 
 type roundTripper struct {
 	chromeBehavior     bool
+	behavior           behavior.Policy
 	changedConnections map[string]*tls.UConn
 	initialStreamID    uint32
 	allowHTTP          bool
@@ -128,6 +130,7 @@ type roundTripper struct {
 type http3Config struct {
 	clientHelloID          tls.ClientHelloID
 	chromeBehavior         bool
+	behavior               behavior.Policy
 	clientSessionCache     tls.ClientSessionCache
 	insecureSkipVerify     bool
 	serverNameOverwrite    string
@@ -257,6 +260,10 @@ func (rt *roundTripper) getHttp3Settings() map[uint64]uint64 {
 }
 
 func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
+	pol := behavior.Resolve(cfg.behavior, cfg.chromeBehavior)
+	if err := pol.Validate(); err != nil {
+		return nil, err
+	}
 	// qpack.Decoder and the encoder-stream handler currently support only the
 	// static table. Refuse unsupported advertisements rather than accepting a
 	// configuration that permits legal peer responses we cannot decode.
@@ -279,22 +286,25 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 	}
 
 	t3 := &http3.Transport{
+		Behavior:        pol.Clone(),
 		TLSClientConfig: utlsConfig,
 		EnableDatagrams: true, // Chrome enables H3_DATAGRAM (setting 0x33)
 	}
 
-	if cfg.chromeBehavior {
-		utlsConfig.ChromeBehavior = true
-		utlsConfig.QUICClientHelloSpec = chromeQUICSpec(cfg.clientHelloID)
-		t3.Dial = dialChromeQUIC
-		t3.QUICConfig = &quic.Config{
-			ChromeBehavior:             true,
-			Versions:                   []quic.Version{quic.Version1},
-			InitialStreamReceiveWindow: 6 << 20, MaxStreamReceiveWindow: 6 << 20,
-			InitialConnectionReceiveWindow: 15 << 20, MaxConnectionReceiveWindow: 15 << 20,
-			MaxIncomingStreams: 100, MaxIncomingUniStreams: 103,
-			MaxIdleTimeout: 30 * time.Second, InitialPacketSize: 1250, EnableDatagrams: true,
+	if pol.Flag("quic.enabled") {
+		utlsConfig.Behavior = pol.Clone()
+		utlsConfig.QUICClientHelloSpec = profileQUICSpec(cfg.clientHelloID, pol)
+		t3.Dial = dialProfileQUIC
+		versions := []quic.Version{}
+		for _, v := range pol.Numbers("quic.versions") {
+			versions = append(versions, quic.Version(v))
 		}
+		t3.EnableDatagrams = pol.Flag("quic.datagrams")
+		t3.QUICConfig = &quic.Config{Behavior: pol.Clone(), Versions: versions,
+			InitialStreamReceiveWindow: pol.Uint("quic.stream_receive_window"), MaxStreamReceiveWindow: pol.Uint("quic.stream_receive_window"),
+			InitialConnectionReceiveWindow: pol.Uint("quic.connection_receive_window"), MaxConnectionReceiveWindow: pol.Uint("quic.connection_receive_window"),
+			MaxIncomingStreams: int64(pol.Uint("quic.incoming_bidi_streams")), MaxIncomingUniStreams: int64(pol.Uint("quic.incoming_uni_streams")),
+			MaxIdleTimeout: time.Duration(pol.Uint("quic.idle_timeout_ms")) * time.Millisecond, InitialPacketSize: uint16(pol.Uint("quic.initial_packet_bytes")), EnableDatagrams: pol.Flag("quic.datagrams")}
 	}
 
 	if cfg.proxyURL != "" {
@@ -326,9 +336,9 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 	// Add random GREASE setting only for browsers that send it (Chrome)
 	// Firefox sends GREASE frames but not random GREASE settings
 	// Use priority parameter as identification: Chrome has it, Firefox doesn't
-	if cfg.http3PriorityParam > 0 {
-		greaseID := generateGREASESettingID()
-		greaseValue := generateGREASESettingValue()
+	if pol.Flag("h3.grease_settings") || (pol == nil && cfg.http3PriorityParam > 0) {
+		greaseID := generateGREASESettingIDPolicy(pol)
+		greaseValue := generateGREASESettingValuePolicy(pol)
 
 		if http3Settings == nil {
 			http3Settings = make(map[uint64]uint64)
@@ -569,7 +579,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 			break
 		}
 		utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-			DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, ChromeBehavior: rt.chromeBehavior}
+			DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, Behavior: rt.behavior.Clone()}
 		if rt.transportOptions != nil {
 			utlsConfig.RootCAs = rt.transportOptions.RootCAs
 			utlsConfig.Certificates = rt.transportOptions.Certificates
@@ -586,7 +596,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 		}
 
 		t2 := http2.Transport{
-			ChromeBehavior:  rt.chromeBehavior,
+			Behavior:        rt.behavior.Clone(),
 			DialTLSContext:  rt.dialTLSHTTP2,
 			TLSClientConfig: utlsConfig,
 			ConnectionFlow:  rt.connectionFlow,
@@ -669,6 +679,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 	case http3.NextProtoH3:
 		t3, err := buildHTTP3Transport(&http3Config{
 			chromeBehavior:         rt.chromeBehavior,
+			behavior:               rt.behavior.Clone(),
 			clientHelloID:          rt.clientHelloId,
 			clientSessionCache:     rt.clientSessionCache,
 			insecureSkipVerify:     rt.insecureSkipVerify,
@@ -757,9 +768,16 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 // handshake dials addr and shakes hands as the profile says, within ctx, and
 // holds the server to the pins it has.
 func (rt *roundTripper) handshake(ctx context.Context, network, addr string) (*tls.UConn, error) {
-	return rt.handshakeAttempt(ctx, network, addr, true)
+	return rt.handshakeAttemptCount(ctx, network, addr, rt.behavior.Int("tls.handshake_retries"))
 }
 func (rt *roundTripper) handshakeAttempt(ctx context.Context, network, addr string, retry bool) (*tls.UConn, error) {
+	n := 0
+	if retry {
+		n = rt.behavior.Int("tls.handshake_retries")
+	}
+	return rt.handshakeAttemptCount(ctx, network, addr, n)
+}
+func (rt *roundTripper) handshakeAttemptCount(ctx context.Context, network, addr string, retries int) (*tls.UConn, error) {
 	if network == "tcp" && rt.disableIPV6 {
 		network = "tcp4"
 	}
@@ -784,7 +802,7 @@ func (rt *roundTripper) handshakeAttempt(ctx context.Context, network, addr stri
 	}
 
 	tlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, ServerName: host, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, ChromeBehavior: rt.chromeBehavior}
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, Behavior: rt.behavior.Clone()}
 	if rt.transportOptions != nil {
 		tlsConfig.RootCAs = rt.transportOptions.RootCAs
 		tlsConfig.KeyLogWriter = rt.transportOptions.KeyLogWriter
@@ -795,10 +813,10 @@ func (rt *roundTripper) handshakeAttempt(ctx context.Context, network, addr stri
 
 	conn := tls.UClient(rawConn, tlsConfig, rt.clientHelloId, rt.withRandomTlsExtensionOrder, rt.forceHttp1, rt.disableHttp3)
 	if err = conn.HandshakeContext(ctx); err != nil {
-		again := retry && rt.chromeBehavior && ctx.Err() == nil && conn.ChromeHandshakeRetryable()
+		again := retries > 0 && ctx.Err() == nil && conn.ChromeHandshakeRetryable()
 		_ = conn.Close()
 		if again {
-			return rt.handshakeAttempt(ctx, network, addr, false)
+			return rt.handshakeAttemptCount(ctx, network, addr, retries-1)
 		}
 		return nil, contextOr(ctx, err)
 	}
@@ -881,7 +899,7 @@ func (rt *roundTripper) dial(ctx context.Context, network, addr string) (net.Con
 
 func (rt *roundTripper) buildHttp1Transport() *http.Transport {
 	utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, ChromeBehavior: rt.chromeBehavior}
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, Behavior: rt.behavior.Clone()}
 	if rt.transportOptions != nil {
 		utlsConfig.RootCAs = rt.transportOptions.RootCAs
 		utlsConfig.Certificates = rt.transportOptions.Certificates
@@ -991,6 +1009,10 @@ func (rt *roundTripper) getDialTLSAddr(req *http.Request) string {
 }
 
 func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *TransportOptions, serverNameOverwrite string, insecureSkipVerify, withRandomTlsExtensionOrder, forceHttp1, disableHttp3, disableSessionTickets, enableH3Racing bool, certificatePins map[string][]string, badPinHandlerFunc BadPinHandlerFunc, disableIPV6, disableIPV4 bool, bandwidthTracker bandwidth.BandwidthTracker, proxyURL string, dialer ...proxy.ContextDialer) (http.RoundTripper, error) {
+	pol := clientProfile.GetBehavior()
+	if err := pol.Validate(); err != nil {
+		return nil, err
+	}
 	pinner, err := NewCertificatePinner(certificatePins)
 	if err != nil {
 		return nil, fmt.Errorf("can not instantiate certificate pinner: %w", err)
@@ -1005,7 +1027,8 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 	}
 
 	rt := &roundTripper{
-		chromeBehavior:              clientProfile.GetChromeBehavior(),
+		chromeBehavior:              false,
+		behavior:                    pol,
 		changedConnections:          make(map[string]*tls.UConn),
 		dialer:                      dialer[0],
 		certificatePinner:           pinner,
@@ -1072,7 +1095,8 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 			clientProfile.GetHttp3SendGreaseFrames(),
 			proxyURL,
 		)
-		rt.racer.chromeBehavior = rt.chromeBehavior
+		rt.racer.chromeBehavior = false
+		rt.racer.behavior = rt.behavior.Clone()
 		rt.racer.clientHelloID = rt.clientHelloId
 	}
 

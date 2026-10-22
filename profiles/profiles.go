@@ -1,6 +1,9 @@
 package profiles
 
 import (
+	"github.com/igor-lemon/utls/behavior"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/igor-lemon/fhttp/http2"
@@ -97,7 +100,8 @@ var MappedTLSClients = map[string]ClientProfile{
 }
 
 type ClientProfile struct {
-	chromeBehavior         bool
+	chromeBehavior         bool // Deprecated API compatibility.
+	behavior               behavior.Policy
 	clientHelloId          tls.ClientHelloID
 	headerPriority         *http2.PriorityParam
 	settings               map[http2.SettingID]uint32
@@ -221,3 +225,24 @@ func (c ClientProfile) WithChromeBehavior(enabled bool) ClientProfile {
 	return c
 }
 func (c ClientProfile) GetChromeBehavior() bool { return c.chromeBehavior }
+
+// WithBehavior sets an owned copy of the profile's declarative policy.
+func (c ClientProfile) WithBehavior(p behavior.Policy) ClientProfile {
+	c.behavior = p.Clone()
+	c.chromeBehavior = false
+	return c
+}
+func (c ClientProfile) GetBehavior() behavior.Policy {
+	return behavior.Resolve(c.behavior, c.chromeBehavior).Clone()
+}
+
+// WithHTTP3Parameters sets explicit profile data even when the TLS hello comes
+// from a catalogue base. Nil maps are independent of the source profile.
+func (c ClientProfile) WithHTTP3Parameters(settings map[uint64]uint64, order []uint64, pseudo []string, priority uint32, grease bool) ClientProfile {
+	c.http3Settings = maps.Clone(settings)
+	c.http3SettingsOrder = slices.Clone(order)
+	c.http3PseudoHeaderOrder = slices.Clone(pseudo)
+	c.http3PriorityParam = priority
+	c.http3SendGreaseFrames = grease
+	return c
+}

@@ -3,6 +3,7 @@ package tls_client
 import (
 	"context"
 	"errors"
+	"github.com/igor-lemon/utls/behavior"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 type protocolRacer struct {
 	clientHelloID   tls.ClientHelloID
 	chromeBehavior  bool
+	behavior        behavior.Policy
 	protocolCache   map[string]string
 	protocolCacheMu sync.RWMutex
 
@@ -243,6 +245,7 @@ func (pr *protocolRacer) getHTTP3Config() *http3Config {
 	return &http3Config{
 		clientHelloID:          pr.clientHelloID,
 		chromeBehavior:         pr.chromeBehavior,
+		behavior:               pr.behavior.Clone(),
 		clientSessionCache:     pr.clientSessionCache,
 		insecureSkipVerify:     pr.insecureSkipVerify,
 		serverNameOverwrite:    pr.serverNameOverwrite,
