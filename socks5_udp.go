@@ -572,6 +572,11 @@ func newSOCKS5QUICDialer(proxyURL string) func(ctx context.Context, addr string,
 		quicTransport := &quic.Transport{
 			Conn: packetConn,
 		}
+		if cfg != nil && cfg.ChromeBehavior {
+			// Each UDP ASSOCIATE owns its socket, so a zero-length source CID
+			// cannot collide with another connection on a shared transport.
+			quicTransport.ConnectionIDGenerator = emptyQUICConnectionIDs{}
+		}
 
 		// Resolve the target address.
 		//
