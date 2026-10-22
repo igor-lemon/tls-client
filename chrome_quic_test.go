@@ -52,10 +52,10 @@ func TestChromeQUICPresetEvents(t *testing.T) {
 	t.Fatal("incomplete", complete)
 }
 
-func TestHTTP3RefusesUnavailableDynamicQPACK(t *testing.T) {
+func TestHTTP3SupportsDynamicQPACK(t *testing.T) {
 	for _, settings := range []map[uint64]uint64{{1: 1}, {7: 1}, {1: 65536, 7: 100}} {
-		if _, err := buildHTTP3Transport(&http3Config{http3Settings: settings}); err == nil {
-			t.Fatalf("unsupported QPACK advertised: %v", settings)
+		if _, err := buildHTTP3Transport(&http3Config{http3Settings: settings}); err != nil {
+			t.Fatalf("dynamic QPACK refused: %v: %v", settings, err)
 		}
 	}
 	tr, err := buildHTTP3Transport(&http3Config{http3Settings: map[uint64]uint64{1: 0, 7: 0}})
