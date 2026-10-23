@@ -214,6 +214,18 @@ func (rt *roundTripper) dropCachedTransport(addr string, stale http.RoundTripper
 	}
 }
 
+// ReapIdleConnections closes, in every HTTP/1.1 transport of the round tripper,
+// the idle connections an on-request idle timeout finds too old.
+func (rt *roundTripper) ReapIdleConnections() {
+	rt.cachedTransportsLck.Lock()
+	defer rt.cachedTransportsLck.Unlock()
+	for _, transport := range rt.cachedTransports {
+		if tr, ok := transport.(interface{ ReapIdleConns() }); ok {
+			tr.ReapIdleConns()
+		}
+	}
+}
+
 func (rt *roundTripper) CloseIdleConnections() {
 	defer func() {
 		if d, ok := rt.dialer.(interface{ CloseIdleProxyConnections() }); ok {
@@ -583,11 +595,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 			utlsConfig.ServerName = rt.serverNameOverwrite
 		}
 
-		idleConnectionTimeout := defaultIdleConnectionTimeout
-
-		if rt.transportOptions != nil && rt.transportOptions.IdleConnTimeout != nil {
-			idleConnectionTimeout = *rt.transportOptions.IdleConnTimeout
-		}
+		idleConnectionTimeout, http2IdleTimeout := rt.idleTimeouts()
 
 		t2 := http2.Transport{
 			Behavior:        rt.behavior.Clone(),
@@ -595,7 +603,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 			TLSClientConfig: utlsConfig,
 			ConnectionFlow:  rt.connectionFlow,
 			HeaderPriority:  rt.headerPriority,
-			IdleConnTimeout: idleConnectionTimeout,
+			IdleConnTimeout: http2IdleTimeout,
 
 			HeaderRepresentation:       rt.headerRepresentation,
 			MaxEncoderHeaderTableSize:  rt.maxEncoderTableSize,
@@ -891,6 +899,21 @@ func (rt *roundTripper) dial(ctx context.Context, network, addr string) (net.Con
 	return rt.dialer.DialContext(ctx, network, addr)
 }
 
+// idleTimeouts are how long an idle HTTP/1.1 and an idle HTTP/2 connection
+// are kept: IdleConnTimeout both, unless HTTP2IdleConnTimeout says HTTP/2's;
+// the transport's default when no options say.
+func (rt *roundTripper) idleTimeouts() (http1, http2 time.Duration) {
+	http1 = defaultIdleConnectionTimeout
+	if rt.transportOptions != nil && rt.transportOptions.IdleConnTimeout != nil {
+		http1 = *rt.transportOptions.IdleConnTimeout
+	}
+	http2 = http1
+	if rt.transportOptions != nil && rt.transportOptions.HTTP2IdleConnTimeout != nil {
+		http2 = *rt.transportOptions.HTTP2IdleConnTimeout
+	}
+	return http1, http2
+}
+
 func (rt *roundTripper) buildHttp1Transport() *http.Transport {
 	utlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
 		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, Behavior: rt.behavior.Clone()}
@@ -903,11 +926,7 @@ func (rt *roundTripper) buildHttp1Transport() *http.Transport {
 		utlsConfig.ServerName = rt.serverNameOverwrite
 	}
 
-	idleConnectionTimeout := defaultIdleConnectionTimeout
-
-	if rt.transportOptions != nil && rt.transportOptions.IdleConnTimeout != nil {
-		idleConnectionTimeout = *rt.transportOptions.IdleConnTimeout
-	}
+	idleConnectionTimeout, _ := rt.idleTimeouts()
 
 	t := &http.Transport{DialContext: rt.dial, DialTLSContext: rt.dialTLS, TLSClientConfig: utlsConfig, ConnectionFlow: rt.connectionFlow, IdleConnTimeout: idleConnectionTimeout,
 		MaxMergedHeadAndBody: rt.maxMergedHeadAndBody}
@@ -924,6 +943,7 @@ func (rt *roundTripper) buildHttp1Transport() *http.Transport {
 		}
 		t.WriteBufferSize = rt.transportOptions.WriteBufferSize
 		t.ReadBufferSize = rt.transportOptions.ReadBufferSize
+		t.IdleConnReapOnRequest = rt.transportOptions.IdleConnReapOnRequest
 	}
 
 	return t
