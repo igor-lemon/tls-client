@@ -207,3 +207,11 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   without a password, the handshake each way and the site's TLS after it,
   when the dial began; a failed dial, an ended context, a SOCKS4 dial that
   connects after its request gave up, `SetProxy`); 26 mutants, all killed.
+
+- `TransportOptions.HTTP2IdleConnTimeout` (HTTP/2's idle timeout alone, zero
+  never: Chrome's SpdySession has no idle timer) and
+  `TransportOptions.IdleConnReapOnRequest` (fhttp's, for the HTTP/1.1
+  transport), through `roundTripper.idleTimeouts`; `ReapIdleConnections` on
+  the round tripper and the client, which asks every HTTP/1.1 transport of
+  it to reap (one per address here, where Chromium has one socket pool).
+  Unset, as before. Test `TestTheTransportsKeepIdleConnectionsAsTheirOptionsSay`.

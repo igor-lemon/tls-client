@@ -312,17 +312,11 @@ func (c *httpClient) CloseIdleConnections() {
 	c.built.CloseIdleConnections()
 }
 
-// Close releases all connections and transports of the client, including the
-// UDP sockets of HTTP/3 transports which CloseIdleConnections keeps open.
-// The client stays usable and builds new transports on the next request.
-func (c *httpClient) Close() {
-	rt, ok := c.Transport.(*roundTripper)
-	if !ok {
-		c.Client.CloseIdleConnections()
-		return
-	}
-
-	rt.Close()
+// ReapIdleConnections closes the idle HTTP/1.1 connections an on-request idle
+// timeout (TransportOptions.IdleConnReapOnRequest) finds too old, in every
+// transport of the round tripper the client built.
+func (c *httpClient) ReapIdleConnections() {
+	c.built.ReapIdleConnections()
 }
 
 // GetDialer() returns the underlying Dialer

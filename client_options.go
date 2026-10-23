@@ -26,6 +26,15 @@ type TransportOptions struct {
 	// IdleConnTimeout is the maximum amount of time an idle (keep-alive)
 	// connection will remain idle before closing itself. Zero means no limit.
 	IdleConnTimeout *time.Duration
+	// HTTP2IdleConnTimeout, when set, is IdleConnTimeout for HTTP/2
+	// connections alone, which IdleConnTimeout then leaves to HTTP/1.1. Zero
+	// means an idle HTTP/2 connection is never closed by the client, as
+	// Chrome's SpdySession has no idle timer.
+	HTTP2IdleConnTimeout *time.Duration
+	// IdleConnReapOnRequest closes an idle HTTP/1.1 connection older than
+	// IdleConnTimeout only when the transport next looks for a connection, as
+	// Chrome's socket pool does, rather than by a timer.
+	IdleConnReapOnRequest bool
 	// ReadIdleTimeout is the HTTP/2 health-check interval: a PING frame is sent
 	// when no frame has been received for this long, so an idle connection
 	// pings every ReadIdleTimeout. This keeps idle connections open on servers
