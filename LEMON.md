@@ -215,3 +215,12 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   the round tripper and the client, which asks every HTTP/1.1 transport of
   it to reap (one per address here, where Chromium has one socket pool).
   Unset, as before. Test `TestTheTransportsKeepIdleConnectionsAsTheirOptionsSay`.
+
+- ECH from the dialer (2026-10-24): a dialed connection that is an `ECHConn`
+  (`ECHConfigList() []byte`, tls-forge's direct dialer after a name's HTTPS
+  records) is offered ECH with those configs when the profile's policy says
+  `tls.ech`; a server's refusal (`*tls.ECHRejectionError`) makes a new
+  connection offering its retry configs, or none when it sent none and
+  `tls.ech_retry_without` says so, `tls.ech_retries` times (`echOffer`,
+  `handshakeOffering`); with InsecureSkipVerify the refusal's certificate
+  is not checked either. Tests `ech_test.go`; 14 mutants, all killed.

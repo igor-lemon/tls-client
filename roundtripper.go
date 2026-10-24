@@ -780,6 +780,55 @@ func (rt *roundTripper) handshakeAttempt(ctx context.Context, network, addr stri
 	return rt.handshakeAttemptCount(ctx, network, addr, n)
 }
 func (rt *roundTripper) handshakeAttemptCount(ctx context.Context, network, addr string, retries int) (*tls.UConn, error) {
+	return rt.handshakeOffering(ctx, network, addr, retries, echOffer{left: rt.behavior.Int("tls.ech_retries")})
+}
+
+// An ECHConn is a connection whose dialer knows the ECH configs of the server
+// it reaches, as a DNS HTTPS record gives them: a profile that offers ECH
+// (tls.ech) offers it with them.
+type ECHConn interface {
+	net.Conn
+	ECHConfigList() []byte
+}
+
+// echOffer is what a connection offers ECH with: the configs its dialer
+// found for its server, unless a server's refusal said others, or none, to
+// make the connection again with (refused); and how many times more a refused
+// offer may be made again, as Chrome's SSLConnectJob makes it once.
+type echOffer struct {
+	refused bool
+	configs []byte
+	left    int
+}
+
+// configs is what the connection conn offers ECH with: none for a profile
+// that offers none.
+func (o echOffer) configsFor(conn net.Conn, p behavior.Policy) []byte {
+	if !p.Flag("tls.ech") {
+		return nil
+	}
+	if o.refused {
+		return o.configs
+	}
+	if c, ok := conn.(ECHConn); ok {
+		return c.ECHConfigList()
+	}
+	return nil
+}
+
+// again is the offer a connection whose ECH a server refused (err) is made
+// again with, and whether it is: with the configs the server sent, or with
+// none when it sent none and the profile says to go on without ECH then.
+func (o echOffer) again(err error, p behavior.Policy) (echOffer, bool) {
+	var refused *tls.ECHRejectionError
+	if !errors.As(err, &refused) || o.left == 0 ||
+		(len(refused.RetryConfigList) == 0 && !p.Flag("tls.ech_retry_without")) {
+		return o, false
+	}
+	return echOffer{refused: true, configs: refused.RetryConfigList, left: o.left - 1}, true
+}
+
+func (rt *roundTripper) handshakeOffering(ctx context.Context, network, addr string, retries int, offer echOffer) (*tls.UConn, error) {
 	if network == "tcp" && rt.disableIPV6 {
 		network = "tcp4"
 	}
@@ -810,6 +859,14 @@ func (rt *roundTripper) handshakeAttemptCount(ctx context.Context, network, addr
 		tlsConfig.KeyLogWriter = rt.transportOptions.KeyLogWriter
 		tlsConfig.Certificates = rt.transportOptions.Certificates
 	}
+	if configs := offer.configsFor(rawConn, rt.behavior); len(configs) > 0 {
+		tlsConfig.EncryptedClientHelloConfigList = configs
+		// A refusal is checked against the public name as any server is,
+		// which a client that checks no certificate does not.
+		if rt.insecureSkipVerify {
+			tlsConfig.EncryptedClientHelloRejectionVerify = func(tls.ConnectionState) error { return nil }
+		}
+	}
 
 	rawConn = rt.bandwidthTracker.TrackConnection(ctx, rawConn)
 
@@ -817,8 +874,11 @@ func (rt *roundTripper) handshakeAttemptCount(ctx context.Context, network, addr
 	if err = conn.HandshakeContext(ctx); err != nil {
 		again := retries > 0 && ctx.Err() == nil && conn.ChromeHandshakeRetryable()
 		_ = conn.Close()
+		if next, ok := offer.again(err, rt.behavior); ok && ctx.Err() == nil {
+			return rt.handshakeOffering(ctx, network, addr, retries, next)
+		}
 		if again {
-			return rt.handshakeAttemptCount(ctx, network, addr, retries-1)
+			return rt.handshakeOffering(ctx, network, addr, retries-1, offer)
 		}
 		return nil, contextOr(ctx, err)
 	}
