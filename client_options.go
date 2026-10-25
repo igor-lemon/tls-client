@@ -114,6 +114,8 @@ type httpClientConfig struct {
 
 	// lookup finds a host's addresses for connection coalescing; nil, none.
 	lookup LookupFunc
+	// http3FromDNS has requests go over HTTP/3 where an HTTPS record names h3.
+	http3FromDNS *HTTP3FromDNS
 
 	// wrapTransport is what the client's requests go through instead of the
 	// round tripper it builds, made of that one; nil, nothing.

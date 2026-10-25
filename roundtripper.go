@@ -122,8 +122,20 @@ type roundTripper struct {
 	shared *http2.Transport
 	// stashed are the addresses whose connection, dialed to find out the
 	// protocol, waits in cachedConnections to be taken up: a request to one
-	// is not offered another's.
-	stashed sync.Map
+	// is not offered another's. stashedAt, the roundTripper's own mutex's,
+	// says since when.
+	stashed   sync.Map
+	stashedAt map[string]time.Time
+	// unusedStash are the addresses whose waiting connection lost a race to
+	// QUIC and waits unused, under the roundTripper's own mutex; unusedIdle,
+	// such connections once taken up, until their transport asks
+	// (wasUnusedIdle).
+	unusedStash map[string]bool
+	unusedIdle  sync.Map
+
+	// dnsH3 has requests go over HTTP/3 where an HTTPS record names h3
+	// (WithHTTP3FromDNS); nil, never.
+	dnsH3 *dnsH3
 }
 
 // http3Config contains all parameters needed to build an HTTP/3 transport
@@ -232,10 +244,19 @@ func (rt *roundTripper) CloseIdleConnections() {
 			d.CloseIdleProxyConnections()
 		}
 	}()
+	rt.dnsH3.closeIdle()
 	rt.Lock()
 	for key, conn := range rt.changedConnections {
 		conn.Close()
 		delete(rt.changedConnections, key)
+	}
+	// A connection never taken up is idle too.
+	for key, conn := range rt.cachedConnections {
+		_ = conn.Close()
+		delete(rt.cachedConnections, key)
+		delete(rt.stashedAt, key)
+		delete(rt.unusedStash, key)
+		rt.stashed.Delete(key)
 	}
 	rt.Unlock()
 	rt.cachedTransportsLck.Lock()
@@ -409,6 +430,10 @@ func profileDefaultMaxResponseHeaderBytes(cfg *http3Config) int {
 func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	addr := rt.getDialTLSAddr(req)
 
+	if rt.dnsH3.uses(rt, req) {
+		return rt.dnsH3.roundTrip(rt, req, addr)
+	}
+
 	if rt.racer != nil && !rt.forceHttp1 && !rt.disableHttp3 && strings.ToLower(req.URL.Scheme) == "https" {
 		return rt.racer.race(req, addr, rt.getTransport)
 	}
@@ -417,12 +442,7 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	// transport it was dialed for, which is dropped: nothing of the request
 	// was sent, and it goes again, on a transport set up for what the server
 	// speaks now, a few times at most.
-	for changes := 0; ; changes++ {
-		resp, err := rt.roundTrip(req, addr)
-		if !errors.Is(err, errProtocolChanged) || changes == protocolChanges {
-			return resp, err
-		}
-	}
+	return rt.tcpRoundTrip(req, addr)
 }
 
 // protocolChanges is how many times a request goes again for a protocol a
@@ -613,6 +633,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 			StrictMaxConcurrentStreams: rt.strictMaxConcurrentStreams,
 			InitialStreamID:            rt.initialStreamID,
 			AllowHTTP:                  rt.allowHTTP,
+			UnusedIdle:                 rt.wasUnusedIdle,
 		}
 
 		if rt.transportOptions != nil {
@@ -706,10 +727,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 
 	// Stash the connection just established for use servicing the
 	// actual request (should be near-immediate).
-	rt.Lock()
-	rt.cachedConnections[addr] = conn
-	rt.Unlock()
-	rt.stashed.Store(addr, true)
+	rt.stash(addr, conn)
 
 	return nil
 }
@@ -758,13 +776,20 @@ func (rt *roundTripper) dialTLS(ctx context.Context, network, addr string) (net.
 		return conn, nil
 	}
 
+	rt.leaveChanged(addr, conn)
+	return nil, fmt.Errorf("%w: %s negotiated %q", errProtocolChanged, addr, negotiatedProtocol)
+}
+
+// leaveChanged leaves conn, which negotiated another protocol than addr's
+// transport speaks, for the next setup of addr to take up, the one left
+// before closed.
+func (rt *roundTripper) leaveChanged(addr string, conn *tls.UConn) {
 	rt.Lock()
+	defer rt.Unlock()
 	if previous := rt.changedConnections[addr]; previous != nil {
-		previous.Close()
+		_ = previous.Close()
 	}
 	rt.changedConnections[addr] = conn
-	rt.Unlock()
-	return nil, fmt.Errorf("%w: %s negotiated %q", errProtocolChanged, addr, negotiatedProtocol)
 }
 
 // handshake dials addr and shakes hands as the profile says, within ctx, and
@@ -893,7 +918,10 @@ func (rt *roundTripper) handshakeOffering(ctx context.Context, network, addr str
 	return conn, nil
 }
 
-// takeStashed takes the connection a setup stashed for addr, if there is one.
+// takeStashed takes the connection a setup stashed for addr, if there is one
+// and its server has not closed it since (Chromium's socket pool hands out an
+// idle socket never used only while it is connected, IdleSocket::IsUsable);
+// one closed is let go of.
 func (rt *roundTripper) takeStashed(addr string) net.Conn {
 	rt.Lock()
 	defer rt.Unlock()
@@ -901,10 +929,27 @@ func (rt *roundTripper) takeStashed(addr string) net.Conn {
 	conn := rt.cachedConnections[addr]
 	if conn != nil {
 		delete(rt.cachedConnections, addr)
+		delete(rt.stashedAt, addr)
 		rt.stashed.Delete(addr)
+		unused := rt.unusedStash[addr]
+		delete(rt.unusedStash, addr)
+		if !connected(conn) {
+			_ = conn.Close()
+			return nil
+		}
+		if unused {
+			rt.unusedIdle.Store(conn, true)
+		}
 	}
 
 	return conn
+}
+
+// wasUnusedIdle says whether conn waited unused before it was taken up, once:
+// the transports' UnusedIdle.
+func (rt *roundTripper) wasUnusedIdle(conn net.Conn) bool {
+	_, was := rt.unusedIdle.LoadAndDelete(conn)
+	return was
 }
 
 // dialLock is an address's: holders are the dials that hold it or wait for
@@ -989,7 +1034,7 @@ func (rt *roundTripper) buildHttp1Transport() *http.Transport {
 	idleConnectionTimeout, _ := rt.idleTimeouts()
 
 	t := &http.Transport{DialContext: rt.dial, DialTLSContext: rt.dialTLS, TLSClientConfig: utlsConfig, ConnectionFlow: rt.connectionFlow, IdleConnTimeout: idleConnectionTimeout,
-		MaxMergedHeadAndBody: rt.maxMergedHeadAndBody}
+		MaxMergedHeadAndBody: rt.maxMergedHeadAndBody, UnusedIdle: rt.wasUnusedIdle}
 
 	if rt.transportOptions != nil {
 		t.DisableKeepAlives = rt.transportOptions.DisableKeepAlives
@@ -1132,6 +1177,8 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		clientHelloId:               clientProfile.GetClientHelloId(),
 		cachedTransports:            make(map[string]http.RoundTripper),
 		cachedConnections:           make(map[string]net.Conn),
+		stashedAt:                   make(map[string]time.Time),
+		unusedStash:                 make(map[string]bool),
 		setups:                      make(map[string]*setup),
 		dialLocks:                   make(map[string]*dialLock),
 		cachedKinds:                 make(map[string]transportKind),
