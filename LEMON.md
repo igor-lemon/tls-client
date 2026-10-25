@@ -326,3 +326,11 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   ends, as a main job takes an idle socket. Measured on Chrome 155
   (tls-forge's `bench/alt`). Tests `altsvc_test.go`; 81 mutants of the
   parser, store and choice and 28 of the rest, all killed.
+- `HTTP3FromDNS.Tap` (2026-10-25, `quictap.go`, `chrome_quic_dial.go`): a
+  QUIC connection's socket tells the tap it is given (`QUICPacketTap`,
+  asked with the context of the request the connection is made for) of
+  every datagram it writes and reads and of its end; a write segmented by
+  the system (Linux's `UDP_SEGMENT`, quic-go's GSO) as the datagrams it
+  sends (`datagramsOf`, unix; elsewhere a write is one). tls-forge's
+  `fetch --pcap` keeps QUIC connections so. Tests `quictap_test.go`,
+  `quictap_unix_test.go`; 20 mutants, all killed.

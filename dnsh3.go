@@ -47,6 +47,12 @@ type HTTP3FromDNS struct {
 	// request.
 	State *QUICState
 	Key   func() string
+	// Tap, when set, is told of the datagrams of every QUIC connection made:
+	// it is asked, with the context of the request the connection is made
+	// for, once the connection's socket is there, and what it gives (nil:
+	// nothing) is told of each datagram the socket writes and reads, and of
+	// its end.
+	Tap func(ctx context.Context, local, remote net.Addr) QUICPacketTap
 }
 
 // WithHTTP3FromDNS has a client go over HTTP/3 to an origin whose HTTPS
@@ -182,7 +188,7 @@ func (d *dnsH3) dial(rt *roundTripper) func(context.Context, string, *tls.Config
 		if len(a.endpoint.ECH) > 0 {
 			tlsCfg.EncryptedClientHelloConfigList = a.endpoint.ECH
 		}
-		conn, err := dialQUIC(ctx, remote, tlsCfg, cfg, func() { a.began.Do(func() { close(a.underWay) }) })
+		conn, err := dialQUIC(withQUICTap(ctx, d.Tap), remote, tlsCfg, cfg, func() { a.began.Do(func() { close(a.underWay) }) })
 		if err != nil {
 			return nil, err
 		}

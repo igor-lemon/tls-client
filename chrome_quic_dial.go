@@ -43,7 +43,9 @@ func dialProfileQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *
 // dialQUICAt makes a QUIC connection to remote over a UDP socket of its own,
 // with source connection IDs as long as the profile says, the socket
 // connected to remote where the profile says quic.connected_socket; sent,
-// when there is one, is called once its first datagram has gone out.
+// when there is one, is called once its first datagram has gone out, and
+// the tap ctx carries (withQUICTap) is told of every datagram and of the
+// socket's end.
 func dialQUICAt(ctx context.Context, remote *net.UDPAddr, tlsCfg *tls.Config, cfg *quic.Config, sent func()) (*quic.Conn, error) {
 	network := "udp4"
 	local := &net.UDPAddr{IP: net.IPv4zero}
@@ -62,21 +64,34 @@ func dialQUICAt(ctx context.Context, remote *net.UDPAddr, tlsCfg *tls.Config, cf
 	if err != nil {
 		return nil, err
 	}
+	tap := quicTapOf(ctx, socket.LocalAddr(), remote)
 	var packets net.PacketConn = socket
-	if connected {
-		packets = newConnectedSocket(socket, sent)
-	} else if sent != nil {
-		packets = newSentFirst(socket, sent)
+	var s *quicSocket
+	switch {
+	case connected:
+		s = newConnectedSocket(socket, sent)
+	case sent != nil || tap != nil:
+		s = newSentFirst(socket, sent)
+	}
+	if s != nil {
+		s.tap = tap
+		packets = s
+	}
+	closed := func() {
+		_ = socket.Close()
+		if tap != nil {
+			tap.Closed()
+		}
 	}
 	// quic.DialEarly uses a single-use transport that permits zero source IDs.
 	transport := &quic.Transport{Conn: packets, ConnectionIDGenerator: profileQUICConnectionIDs{cfg.Policy().Int("quic.source_cid_bytes")}}
 	conn, err := transport.DialEarly(ctx, remote, tlsCfg, cfg)
 	if err != nil {
 		_ = transport.Close()
-		_ = socket.Close()
+		closed()
 		return nil, err
 	}
-	go func() { <-conn.Context().Done(); _ = transport.Close(); _ = socket.Close() }()
+	go func() { <-conn.Context().Done(); _ = transport.Close(); closed() }()
 	return conn, nil
 }
 
@@ -87,16 +102,17 @@ func dialQUICAt(ctx context.Context, remote *net.UDPAddr, tlsCfg *tls.Config, cf
 // Chrome's is: an ICMP error the server's host answers a datagram with comes
 // back to it as the error of its next read or write, which ends the
 // connection at once; quic-go writes to an address, which a connected socket
-// takes none of. It is all quic-go asks of a *net.UDPConn
-// (OOBCapablePacketConn), and reads its batches as quic-go reads the
-// socket's (ipv4.PacketConn), so the connection reads and writes as it would
-// on the socket itself.
+// takes none of. With tap, it tells it of every datagram it writes and
+// reads. It is all quic-go asks of a *net.UDPConn (OOBCapablePacketConn),
+// and reads its batches as quic-go reads the socket's (ipv4.PacketConn), so
+// the connection reads and writes as it would on the socket itself.
 type quicSocket struct {
 	*net.UDPConn
 	batch     *ipv4.PacketConn
 	connected bool
 	once      sync.Once
 	sent      func()
+	tap       QUICPacketTap
 }
 
 func newSentFirst(socket *net.UDPConn, sent func()) *quicSocket {
@@ -120,17 +136,46 @@ func (c *quicSocket) WriteMsgUDP(b, oob []byte, addr *net.UDPAddr) (int, int, er
 	if c.connected {
 		addr = nil
 	}
-	return c.UDPConn.WriteMsgUDP(b, oob, addr)
+	n, oobn, err := c.UDPConn.WriteMsgUDP(b, oob, addr)
+	if err == nil {
+		c.wrote(b[:n], oob)
+	}
+	return n, oobn, err
 }
 
 func (c *quicSocket) WriteTo(b []byte, addr net.Addr) (int, error) {
 	defer c.said()
+	var n int
+	var err error
 	if c.connected {
-		return c.UDPConn.Write(b)
+		n, err = c.UDPConn.Write(b)
+	} else {
+		n, err = c.UDPConn.WriteTo(b, addr)
 	}
-	return c.UDPConn.WriteTo(b, addr)
+	if err == nil {
+		c.wrote(b[:n], nil)
+	}
+	return n, err
+}
+
+// wrote tells the tap of the datagrams a write of b with oob sent.
+func (c *quicSocket) wrote(b, oob []byte) {
+	if c.tap == nil {
+		return
+	}
+	for _, d := range datagramsOf(b, oob) {
+		c.tap.Wrote(d)
+	}
 }
 
 func (c *quicSocket) ReadBatch(ms []ipv4.Message, flags int) (int, error) {
-	return c.batch.ReadBatch(ms, flags)
+	n, err := c.batch.ReadBatch(ms, flags)
+	if c.tap != nil {
+		for _, m := range ms[:max(n, 0)] {
+			if len(m.Buffers) > 0 {
+				c.tap.Read(m.Buffers[0][:min(m.N, len(m.Buffers[0]))])
+			}
+		}
+	}
+	return n, err
 }
