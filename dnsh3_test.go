@@ -662,7 +662,9 @@ func TestAPortPastWhatAnAddressHasFailsBoth(t *testing.T) {
 }
 
 func TestATCPConnectionThatLostIsReapedUnusedOrPassedOverClosed(t *testing.T) {
-	// Reaped: once its time is up, on the next request.
+	// Reaped: once its time is up, by the next request that asks for a TCP
+	// connection, as Chromium's socket pool cleans up when a socket is asked
+	// of it; one on the QUIC connection asks for none.
 	o := newH3Origin(t, originSays{tcpLag: 50 * time.Millisecond})
 	c := h3Client(t, dnsH3Policy(t, map[string]string{"http.unused_idle_connection_timeout_ms": "1"}), &recordSays{h3: true}, NewQUICState())
 	if got := came(t, c, "https://"+o.addr+"/"); got != "HTTP/3.0" {
@@ -672,6 +674,8 @@ func TestATCPConnectionThatLostIsReapedUnusedOrPassedOverClosed(t *testing.T) {
 	if o.tcpClosed.Load() != 0 {
 		t.Fatal("the connection that lost was closed before its time")
 	}
+	_ = o.quicConn(t, 0).CloseWithError(0, "")
+	time.Sleep(100 * time.Millisecond)
 	if got := came(t, c, "https://"+o.addr+"/again"); got != "HTTP/3.0" {
 		t.Fatalf("came over %q", got)
 	}
@@ -831,7 +835,8 @@ func TestAConnectionOfAnotherProtocolReplacesTheOneLeftBefore(t *testing.T) {
 	rt := &roundTripper{changedConnections: map[string]*tls.UConn{}}
 	a, other := net.Pipe()
 	defer other.Close()
-	b, _ := net.Pipe()
+	b, another := net.Pipe()
+	defer another.Close()
 	first := tls.UClient(a, &tls.Config{}, tls.HelloChrome_Auto, false, false, false)
 	rt.leaveChanged("x:443", first)
 	rt.leaveChanged("x:443", tls.UClient(b, &tls.Config{}, tls.HelloChrome_Auto, false, false, false))

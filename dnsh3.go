@@ -233,13 +233,14 @@ func (d *dnsH3) preconnect(t3 *http3.Transport, ctx context.Context, addr string
 // ALPN job: on the QUIC connection up for addr; else over TCP when QUIC to
 // addr is broken; at once over a TCP connection addr has, a QUIC connection
 // made apart where its record names h3 (the main job is not held back then,
-// quic.tcp_waits_with_connection); else the two raced.
+// quic.tcp_waits_with_connection); else the two raced, TCP at once beside
+// QUIC where the connection addr had went as the connections that wait were
+// cleaned up.
 func (d *dnsH3) roundTrip(rt *roundTripper, req *http.Request, addr string) (*http.Response, error) {
 	t3, err := d.transport(rt)
 	if err != nil {
 		return nil, err
 	}
-	rt.reapUnused()
 	s := quicServer{d.Key(), addr}
 	if t3.HasConn(addr) {
 		res, took, err := d.onQUIC(rt, t3, req, addr, s)
@@ -252,10 +253,16 @@ func (d *dnsH3) roundTrip(rt *roundTripper, req *http.Request, addr string) (*ht
 		}
 		req = again
 	}
+	// Whether addr has a TCP connection is asked before the connections that
+	// wait are cleaned up, as Chromium asks it of its main job's socket group
+	// (TargettedSocketGroupHasActiveSocket) before that job's socket request
+	// cleans up: one there, even one that goes then, holds no main job back.
+	free := !rt.behavior.Flag("quic.tcp_waits_with_connection") && rt.hasTCPConn(addr)
+	rt.reapUnused("")
 	if d.State.isBroken(s) {
 		return rt.tcpRoundTrip(req, addr)
 	}
-	if !rt.behavior.Flag("quic.tcp_waits_with_connection") && rt.hasTCPConn(addr) {
+	if free && rt.hasTCPConn(addr) {
 		quicDone := make(chan error, 1)
 		go func() {
 			ctx, ep, h3 := d.Endpoint(context.WithoutCancel(req.Context()), addr)
@@ -275,7 +282,7 @@ func (d *dnsH3) roundTrip(rt *roundTripper, req *http.Request, addr string) (*ht
 	if !h3 {
 		return rt.tcpRoundTrip(req, addr)
 	}
-	return d.race(rt, t3, req, addr, s, ep)
+	return d.race(rt, t3, req, addr, s, ep, free)
 }
 
 // settled marks s broken when its QUIC connection failed where TCP did not
@@ -288,10 +295,11 @@ func (d *dnsH3) settled(s quicServer, quicDone chan error, tcpWorked bool, rt *r
 }
 
 // race makes req's QUIC connection and, as long after it is under way as the
-// session's state says, its TCP one; the first up takes the request. TCP goes
-// at once when QUIC fails, and a request both fail says TCP's error, as
-// Chromium reports its main job's.
-func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, addr string, s quicServer, ep QUICEndpoint) (*http.Response, error) {
+// session's state says (at once when free, a main job not held back), its
+// TCP one; the first up takes the request. TCP goes at once when QUIC fails,
+// and a request both fail says TCP's error, as Chromium reports its main
+// job's.
+func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, addr string, s quicServer, ep QUICEndpoint, free bool) (*http.Response, error) {
 	a, made := d.attempt(addr, s, ep)
 	quicDone := make(chan error, 1)
 	if made {
@@ -321,6 +329,9 @@ func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, a
 	underWay := a.underWay
 	var quicErr, tcpErr error
 	quicOpen, tcpOpen := true, true
+	if free {
+		startTCP()
+	}
 	for {
 		select {
 		case <-underWay:
@@ -394,6 +405,8 @@ func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, a
 // HttpNetworkTransaction restarts with alternative services off
 // (retry_without_alt_svc_on_quic_errors). QUIC to s is broken once TCP has
 // answered (MarkAlternativeServiceBroken, once Chromium has read the body).
+// The connections that wait unused are cleaned up first, as the restarted
+// transaction's socket request cleans its pool up.
 func (d *dnsH3) onQUIC(rt *roundTripper, t3 *http3.Transport, req *http.Request, addr string, s quicServer) (*http.Response, bool, error) {
 	res, err := t3.RoundTripOpt(req, http3.RoundTripOpt{OnlyCachedConn: true})
 	if errors.Is(err, http3.ErrNoCachedConn) {
@@ -406,6 +419,7 @@ func (d *dnsH3) onQUIC(rt *roundTripper, t3 *http3.Transport, req *http.Request,
 	if !ok {
 		return nil, true, err
 	}
+	rt.reapUnused("")
 	res, err = rt.tcpRoundTrip(again, addr)
 	if err == nil {
 		d.State.markBroken(s, rt.behavior)
@@ -509,7 +523,7 @@ func (rt *roundTripper) connectTCP(req *http.Request, addr string) error {
 func (rt *roundTripper) stash(addr string, conn net.Conn) {
 	rt.Lock()
 	if previous := rt.cachedConnections[addr]; previous != nil {
-		_ = previous.Close()
+		rt.letGo(previous)
 	}
 	rt.cachedConnections[addr] = conn
 	rt.stashedAt[addr] = time.Now()
@@ -518,28 +532,73 @@ func (rt *roundTripper) stash(addr string, conn net.Conn) {
 	rt.stashed.Store(addr, true)
 }
 
+// peek reads what the server sends a connection that waits to be taken up,
+// as Chromium reads each of its connections right after its handshake
+// whether or not anything reads it yet (SSLClientSocketImpl::DoPeek): its
+// session tickets are cached as they come, and the data after them is left
+// for its transport, which also meets whatever error the reading met. The
+// peek is done once its channel in peeks is closed.
+func (rt *roundTripper) peek(conn net.Conn) {
+	p, ok := conn.(interface{ Peek() error })
+	if !ok {
+		return
+	}
+	done := make(chan struct{})
+	rt.peeks.Store(conn, done)
+	go func() {
+		_ = p.Peek()
+		close(done)
+	}()
+}
+
+// alive says whether conn, waiting to be taken up, was not closed by its
+// server: while its peek reads, it was not, the peek having met nothing
+// else; else as connected says, which would wait for a read going on.
+func (rt *roundTripper) alive(conn net.Conn) bool {
+	if done, ok := rt.peeks.Load(conn); ok {
+		select {
+		case <-done.(chan struct{}):
+		default:
+			return true
+		}
+	}
+	return connected(conn)
+}
+
+// letGo closes conn, which waited to be taken up and no longer does.
+func (rt *roundTripper) letGo(conn net.Conn) {
+	_ = conn.Close()
+	rt.peeks.Delete(conn)
+}
+
 // leftUnused has the connection waiting for addr's transport be one that
 // waited unused when it is taken up (Transport.UnusedIdle): a request it loses
 // before any of its answer goes again, as on a socket Chromium's pool kept.
+// It is read as it waits (peek); one a setup left for its transport to take
+// at once is not, as a peek finishing a false start would hold up what that
+// transport asks of it (ConnectionState waits for the handshake).
 func (rt *roundTripper) leftUnused(addr string) {
 	rt.Lock()
 	defer rt.Unlock()
-	if rt.cachedConnections[addr] != nil {
+	if conn := rt.cachedConnections[addr]; conn != nil {
 		rt.unusedStash[addr] = true
+		rt.peek(conn)
 	}
 }
 
-// reapUnused closes the connections left waiting to be taken up longer than
-// http.unused_idle_connection_timeout_ms, as Chromium's socket pool, when a
-// socket is asked of it, cleans up the idle sockets never used past their
-// time (CleanupIdleSockets, unused_idle_socket_timeout).
-func (rt *roundTripper) reapUnused() {
+// reapUnused closes the connections left waiting to be taken up, but the one
+// for the address but, that waited longer than
+// http.unused_idle_connection_timeout_ms or that their servers closed, as
+// Chromium's socket pool, when a socket is asked of it, cleans up the idle
+// sockets never used past their time and those no longer usable
+// (CleanupIdleSockets, unused_idle_socket_timeout, IsUsable).
+func (rt *roundTripper) reapUnused(but string) {
 	limit := time.Duration(rt.behavior.Uint("http.unused_idle_connection_timeout_ms")) * time.Millisecond
 	rt.Lock()
 	defer rt.Unlock()
 	for addr, conn := range rt.cachedConnections {
-		if time.Since(rt.stashedAt[addr]) >= limit {
-			_ = conn.Close()
+		if addr != but && (time.Since(rt.stashedAt[addr]) >= limit || !rt.alive(conn)) {
+			rt.letGo(conn)
 			delete(rt.cachedConnections, addr)
 			delete(rt.stashedAt, addr)
 			delete(rt.unusedStash, addr)
