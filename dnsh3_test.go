@@ -12,11 +12,13 @@ import (
 	stdhttp "net/http"
 	"net/http/httptest"
 	"net/netip"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/httptrace"
@@ -1152,11 +1154,23 @@ func resetting(code uint64, answered int32) func(http.ResponseWriter, *http.Requ
 		if asked.Add(1) <= answered {
 			return false
 		}
-		str := w.(http3.HTTPStreamer).HTTPStream()
+		str := unanswered(w)
 		str.CancelRead(quic.StreamErrorCode(code))
 		str.CancelWrite(quic.StreamErrorCode(code))
 		return true
 	}
+}
+
+// unanswered is the stream of the request w answers, taken with nothing sent:
+// HTTPStream sends a 200 first, so that a client read an answer before the
+// reset now and then, where a server that cannot read a request sends none
+// (quic-go's own resets such a stream before any).
+func unanswered(w http.ResponseWriter) *http3.Stream {
+	f := reflect.ValueOf(w).Elem().FieldByName("str")
+	if !f.IsValid() || f.Type() != reflect.TypeOf((*http3.Stream)(nil)) {
+		panic("http3's response writer keeps its stream elsewhere")
+	}
+	return *(**http3.Stream)(unsafe.Pointer(f.UnsafeAddr()))
 }
 
 // closing is an origin's HTTP/3 that ends the connection of a request it is
