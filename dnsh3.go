@@ -97,6 +97,13 @@ type quicAttempt struct {
 	quicJob
 	underWay chan struct{}
 	began    sync.Once
+	// conn is the connection made, once its dial is done.
+	conn *quic.Conn
+}
+
+// failed says whether the attempt's connection, made, has ended already.
+func (a *quicAttempt) failed() bool {
+	return a.conn != nil && a.conn.Context().Err() != nil
 }
 
 type quicAttemptKey struct{}
@@ -192,6 +199,7 @@ func (d *dnsH3) dial(rt *roundTripper) func(context.Context, string, *tls.Config
 		if err != nil {
 			return nil, err
 		}
+		a.conn = conn
 		go d.watch(rt, conn, a.server, a.origin)
 		return conn, nil
 	}
@@ -474,12 +482,19 @@ func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, a
 					return res, err
 				}
 				// The connection went before the request did, or refused it
-				// unprocessed: TCP's takes it.
+				// unprocessed: TCP's takes it. A connection made just now that
+				// went already failed, as Chromium's QUIC job does when its
+				// session closes at once: QUIC is broken once TCP has answered;
+				// a refusal leaves it up, and QUIC as it was.
 				again, ok := resent(req)
 				if !ok {
 					return nil, err
 				}
-				return rt.tcpRoundTrip(again, addr)
+				res, err = rt.tcpRoundTrip(again, addr)
+				if err == nil && a.failed() {
+					d.State.markBroken(s, rt.behavior)
+				}
+				return res, err
 			}
 			quicErr = err
 			if tcpStarted && !tcpOpen {
