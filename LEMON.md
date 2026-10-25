@@ -224,3 +224,25 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   `tls.ech_retry_without` says so, `tls.ech_retries` times (`echOffer`,
   `handshakeOffering`); with InsecureSkipVerify the refusal's certificate
   is not checked either. Tests `ech_test.go`; 14 mutants, all killed.
+
+- HTTP/3 where a name's HTTPS record names h3 (2026-10-25,
+  `WithHTTP3FromDNS`, `HTTP3FromDNS`, `QUICEndpoint`, `QUICState`;
+  `dnsh3.go`, `quicstate.go`): for an https request with no proxy, of a
+  profile that says `dns.https_h3`, whose `Endpoint` (the caller's
+  resolution and the record's ECH) says h3: a QUIC connection to the first
+  address, offering that ECH, and TCP once QUIC's first datagram went
+  (`sentFirst`, around `dialQUICAt`'s socket) and `tcpWait` after; the first
+  up takes the request and the other is made apart, a TCP one stashed unused
+  (`leftUnused`, fhttp's `UnusedIdle`; reaped by the next request past
+  `http.unused_idle_connection_timeout_ms`, passed over once its peer
+  closed it, `connected`), a QUIC one taking the requests after it (http3's
+  `HasConn`); with a TCP connection already, the request goes on it at once
+  and QUIC is made apart; QUIC that failed where TCP worked is broken
+  (`markBroken`, doubling up to `quic.broken_max_ms`). HTTP/3's connections
+  write their secrets to `TransportOptions.KeyLogWriter` too. As Chromium
+  155's DNS ALPN job, measured on tls-forge's bench/h3 (two cohorts of
+  Chrome 155 and of the library: as Chrome in each but the loopback race).
+  Tests `dnsh3_test.go`, `quicstate_test.go`, `sentfirst_test.go`,
+  `connected_unix_test.go`, `h3keylog_test.go`; 54 mutants: 53 killed, and
+  the last was of a branch that went (accepting an ECH refusal over QUIC: a
+  refused offer fails the connection whatever its certificate says).
