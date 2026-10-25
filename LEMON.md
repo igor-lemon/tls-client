@@ -260,3 +260,18 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   tls-forge's ALPS bound to its ALPN, whose h2 a QUIC hello's h3 would
   leave empty). Tests `TestAQUICHelloOffersALPSAsItsProfileSays`,
   `TestAQUICHandshakeOfALPSSaysTheClientsEmptySettings`.
+- A request a QUIC connection of a record's h3 failed before its answer,
+  for whatever reason but its own context's, goes again over TCP, its body
+  again (`GetBody`, or none), where the profile says `quic.retry_over_tcp`
+  (2026-10-25, `dnsh3.go` `onQUIC`, `resent`), and QUIC to the server is
+  broken once TCP's answer came, as Chromium's HttpNetworkTransaction
+  restarts a request its QuicHttpStream failed (`ERR_QUIC_PROTOCOL_ERROR`)
+  with alternative services off (`retry_without_alt_svc_on_quic_errors`),
+  measured on Chrome 155 (tls-forge's `bench/h3alps`). A request the QUIC
+  connection could not take (`http3.ErrNoCachedConn`: gone before it went,
+  or refused unprocessed) goes over TCP with its body again too: before, its
+  body went out closed (the up path), or the request failed with that error
+  (the race's). Tests in `dnsh3_test.go` (`resetting`, `closing`,
+  `originSays.quicFails`, `h3Origin.tcpAsked`); 14 mutants, 13 killed, one
+  equivalent (a request whose context ended sent over TCP fails there before
+  anything is written: fhttp's `encodeAndWriteHeaders` asks the context).

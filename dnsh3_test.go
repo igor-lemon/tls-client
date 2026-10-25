@@ -42,6 +42,7 @@ type h3Origin struct {
 	// all (silent).
 	datagrams atomic.Int32
 	tcpClosed atomic.Int32
+	tcpAsked  atomic.Int32 // requests its TCP answered
 	tcp       *httptest.Server
 	h3        *http3.Server
 	mu        sync.Mutex
@@ -59,13 +60,24 @@ type originSays struct {
 	echKeys []tls.EncryptedClientHelloKey
 	// noTickets has its TCP give no session tickets.
 	noTickets bool
+	// quicFails, when it says so, has its HTTP/3 fail the request it is
+	// given instead of answering it.
+	quicFails func(w http.ResponseWriter, r *http.Request, conn *quic.Conn) bool
 }
 
 func newH3Origin(t *testing.T, says originSays) *h3Origin {
 	t.Helper()
 	o := &h3Origin{}
 	cert := coalescingCert(t, "a.test")
-	answer := func(w stdhttp.ResponseWriter, r *stdhttp.Request) { _, _ = io.WriteString(w, r.Proto) }
+	// each request answered with the protocol it came over, and its body
+	// after a space when it has one
+	answer := func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		o.tcpAsked.Add(1)
+		_, _ = io.WriteString(w, r.Proto)
+		if b, _ := io.ReadAll(r.Body); len(b) > 0 {
+			_, _ = io.WriteString(w, " "+string(b))
+		}
+	}
 	var udp net.PacketConn
 	var tcp net.Listener
 	for tries := 1; ; tries++ {
@@ -130,6 +142,14 @@ func newH3Origin(t *testing.T, says originSays) *h3Origin {
 		udp = inner
 	}
 	h3 := &http3.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if says.quicFails != nil {
+			o.mu.Lock()
+			conn := o.quic[len(o.quic)-1]
+			o.mu.Unlock()
+			if says.quicFails(w, r, conn) {
+				return
+			}
+		}
 		said := r.Proto
 		if r.TLS != nil && r.TLS.ECHAccepted {
 			said += " ech"
@@ -242,7 +262,7 @@ func dnsH3Policy(t *testing.T, changes map[string]string) behavior.Policy {
 	p := behavior.Legacy()
 	for k, v := range map[string]string{"dns.https_records": "true", "dns.https_wait_percent": "20",
 		"dns.https_wait_min_ms": "5", "dns.https_wait_max_ms": "50", "dns.resolver": `"built-in"`,
-		"dns.https_h3": "true", "quic.tcp_waits_with_connection": "false",
+		"dns.https_h3": "true", "quic.tcp_waits_with_connection": "false", "quic.retry_over_tcp": "true",
 		"http.unused_idle_connection_timeout_ms": "60000",
 		// Chrome's own resends: a request on a connection that waited unused
 		// goes again when it is lost.
@@ -435,7 +455,7 @@ func TestARecordThatNamesNoH3IsTCPAlone(t *testing.T) {
 		{"a profile that does not ask", map[string]string{"dns.https_h3": "false", "quic.tcp_wait_cold_ms": "",
 			"quic.tcp_wait_broken_ms": "", "quic.tcp_wait_rtt_percent": "", "quic.tcp_wait_default_ms": "",
 			"quic.tcp_wait_extra_ms": "", "quic.tcp_wait_max_ms": "", "quic.tcp_waits_with_connection": "",
-			"quic.broken_ms": "", "quic.broken_doublings": "", "quic.broken_max_ms": "", "quic.broken_recent_max": "",
+			"quic.retry_over_tcp": "", "quic.broken_ms": "", "quic.broken_doublings": "", "quic.broken_max_ms": "", "quic.broken_recent_max": "",
 			"quic.server_rtts_max": "", "http.unused_idle_connection_timeout_ms": ""}, true},
 	} {
 		c := h3Client(t, dnsH3Policy(t, tc.changes), &recordSays{h3: tc.h3}, NewQUICState())
@@ -1120,5 +1140,209 @@ func TestAConnectionThatWentAwayBeforeItsHandshakeLeavesNoRTT(t *testing.T) {
 	d.watch(&roundTripper{behavior: dnsH3Policy(t, nil)}, halfMade{ctx}, s)
 	if d.State.rttsByKey[s] != nil {
 		t.Error("an RTT kept of a connection whose handshake was not done")
+	}
+}
+
+// resetting is an origin's HTTP/3 that resets the stream of every request
+// with code, as a server whose decoder cannot read the request's fields does
+// (QPACK_DECOMPRESSION_FAILED, 0x200), after the first answered when one is.
+func resetting(code uint64, answered int32) func(http.ResponseWriter, *http.Request, *quic.Conn) bool {
+	var asked atomic.Int32
+	return func(w http.ResponseWriter, _ *http.Request, _ *quic.Conn) bool {
+		if asked.Add(1) <= answered {
+			return false
+		}
+		str := w.(http3.HTTPStreamer).HTTPStream()
+		str.CancelRead(quic.StreamErrorCode(code))
+		str.CancelWrite(quic.StreamErrorCode(code))
+		return true
+	}
+}
+
+// closing is an origin's HTTP/3 that ends the connection of a request it is
+// given with an application error, as a client that read its settings
+// against what ALPS gave does (H3_SETTINGS_ERROR, 0x109).
+func closing(code uint64) func(http.ResponseWriter, *http.Request, *quic.Conn) bool {
+	return func(_ http.ResponseWriter, _ *http.Request, conn *quic.Conn) bool {
+		_ = conn.CloseWithError(quic.ApplicationErrorCode(code), "164:settings")
+		return true
+	}
+}
+
+func TestARequestAQUICConnectionFailedGoesAgainOverTCPAndQUICIsBrokenAsChromes(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		fails func(http.ResponseWriter, *http.Request, *quic.Conn) bool
+	}{
+		{"its stream reset", resetting(0x200, 0)},
+		{"its connection closed", closing(0x109)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// TCP's handshake answered late: QUIC is up first and takes the
+			// request, which it fails.
+			o := newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond, quicFails: tc.fails})
+			state := NewQUICState()
+			c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, state)
+			// Chromium: HTTP_TRANSACTION_RESTART_AFTER_ERROR, ERR_QUIC_PROTOCOL_ERROR,
+			// the request again with alternative services off (bench/h3alps)
+			if got := came(t, c, "https://"+o.addr+"/"); got != "HTTP/2.0" {
+				t.Fatalf("came over %q, want TCP's after QUIC's failure", got)
+			}
+			if !state.isBroken(quicServer{"https://a.test", o.addr}) {
+				t.Fatal("QUIC not broken once TCP answered")
+			}
+			// broken: the next over TCP, and no QUIC connection made for it
+			if got := came(t, c, "https://"+o.addr+"/again"); got != "HTTP/2.0" {
+				t.Errorf("the next came over %q", got)
+			}
+			time.Sleep(50 * time.Millisecond)
+			if o.quicConns.Load() != 1 {
+				t.Errorf("%d QUIC connections, want the one that failed", o.quicConns.Load())
+			}
+		})
+	}
+}
+
+func TestARequestFailedOnAQUICConnectionUpGoesAgainOverTCPWithItsBody(t *testing.T) {
+	// the first answered over HTTP/3, the second's stream reset
+	o := newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond, quicFails: resetting(0x200, 1)})
+	state := NewQUICState()
+	c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, state)
+	if got := came(t, c, "https://"+o.addr+"/"); got != "HTTP/3.0" {
+		t.Fatalf("came over %q", got)
+	}
+	req, _ := http.NewRequest("POST", "https://"+o.addr+"/post", strings.NewReader("the body"))
+	res, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if string(b) != "HTTP/2.0 the body" {
+		t.Errorf("came over %q, want TCP's with the body again", b)
+	}
+	if !state.isBroken(quicServer{"https://a.test", o.addr}) {
+		t.Error("QUIC not broken once TCP answered")
+	}
+}
+
+// onceReader is a body that cannot be had again.
+type onceReader struct{ io.Reader }
+
+func TestARequestQUICFailedIsNotSentAgainWhenItsProfileSaysOrItsBodyCannotBeHadAgain(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		changes map[string]string
+		body    io.Reader
+		getBody func() (io.ReadCloser, error)
+	}{
+		{"its profile says not", map[string]string{"quic.retry_over_tcp": "false"}, nil, nil},
+		{"a body that cannot be had again", nil, onceReader{strings.NewReader("once")}, nil},
+		{"a body whose copy fails", nil, onceReader{strings.NewReader("once")},
+			func() (io.ReadCloser, error) { return nil, errors.New("no copy") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond, quicFails: resetting(0x200, 0)})
+			state := NewQUICState()
+			c := h3Client(t, dnsH3Policy(t, tc.changes), &recordSays{h3: true}, state)
+			req, _ := http.NewRequest("POST", "https://"+o.addr+"/", tc.body)
+			req.GetBody = tc.getBody
+			_, err := c.Do(req)
+			var se *quic.StreamError
+			var he *http3.Error
+			if err == nil || !errors.As(err, &se) && !errors.As(err, &he) {
+				t.Fatalf("said %v, want QUIC's error", err)
+			}
+			if state.isBroken(quicServer{"https://a.test", o.addr}) {
+				t.Error("QUIC broken with no TCP answer")
+			}
+			if o.tcpAsked.Load() != 0 {
+				t.Errorf("TCP asked %d times", o.tcpAsked.Load())
+			}
+		})
+	}
+}
+
+func TestARequestWithAnEmptyBodyQUICFailedGoesAgainOverTCP(t *testing.T) {
+	// http.NoBody, which a caller may give with no way to have it again: it
+	// is the same every time
+	o := newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond, quicFails: resetting(0x200, 0)})
+	c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, NewQUICState())
+	req, _ := http.NewRequest("POST", "https://"+o.addr+"/", nil)
+	req.Body = http.NoBody
+	res, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if string(b) != "HTTP/2.0" {
+		t.Errorf("came over %q, want TCP's", b)
+	}
+}
+
+func TestARequestEndedOnQUICIsNotSentAgain(t *testing.T) {
+	// its QUIC connection holds it past its deadline: its own context ends
+	// it, and TCP is not asked
+	o := newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond, quicFails: func(http.ResponseWriter, *http.Request, *quic.Conn) bool {
+		time.Sleep(300 * time.Millisecond)
+		return false
+	}})
+	state := NewQUICState()
+	c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, state)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://"+o.addr+"/", nil)
+	if _, err := c.Do(req); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("said %v, want its deadline", err)
+	}
+	if o.tcpAsked.Load() != 0 || state.isBroken(quicServer{"https://a.test", o.addr}) {
+		t.Errorf("TCP asked %d times, QUIC broken %v", o.tcpAsked.Load(), state.isBroken(quicServer{"https://a.test", o.addr}))
+	}
+}
+
+func TestARequestBothQUICAndTCPFailedLeavesQUICUnbroken(t *testing.T) {
+	var o *h3Origin
+	o = newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond, quicFails: func(w http.ResponseWriter, r *http.Request, conn *quic.Conn) bool {
+		// TCP gone before the request comes back to it
+		o.tcp.CloseClientConnections()
+		_ = o.tcp.Listener.Close()
+		return resetting(0x200, 0)(w, r, conn)
+	}})
+	state := NewQUICState()
+	c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, state)
+	if got := came(t, c, "https://"+o.addr+"/"); !strings.HasPrefix(got, "error: ") {
+		t.Fatalf("came over %q, want TCP's error", got)
+	}
+	if state.isBroken(quicServer{"https://a.test", o.addr}) {
+		t.Error("QUIC broken where TCP did not work either")
+	}
+}
+
+func TestARequestTheQUICConnectionUpRefusedUnprocessedGoesOverTCPWithItsBody(t *testing.T) {
+	// H3_REQUEST_REJECTED: tried again, on no connection the transport may
+	// make; TCP's takes it, its body again, and QUIC is not broken for that
+	for _, answered := range []int32{0, 1} {
+		o := newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond, quicFails: resetting(0x10b, answered)})
+		state := NewQUICState()
+		c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, state)
+		if answered > 0 {
+			if got := came(t, c, "https://"+o.addr+"/"); got != "HTTP/3.0" {
+				t.Fatalf("came over %q", got)
+			}
+		}
+		req, _ := http.NewRequest("POST", "https://"+o.addr+"/post", strings.NewReader("the body"))
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if string(b) != "HTTP/2.0 the body" {
+			t.Errorf("%d answered: came over %q, want TCP's with the body", answered, b)
+		}
+		if state.isBroken(quicServer{"https://a.test", o.addr}) {
+			t.Errorf("%d answered: QUIC broken for a request refused unprocessed", answered)
+		}
 	}
 }

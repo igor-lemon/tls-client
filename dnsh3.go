@@ -240,13 +240,18 @@ func (d *dnsH3) roundTrip(rt *roundTripper, req *http.Request, addr string) (*ht
 		return nil, err
 	}
 	rt.reapUnused()
+	s := quicServer{d.Key(), addr}
 	if t3.HasConn(addr) {
-		res, err := t3.RoundTripOpt(req, http3.RoundTripOpt{OnlyCachedConn: true})
-		if !errors.Is(err, http3.ErrNoCachedConn) {
+		res, took, err := d.onQUIC(rt, t3, req, addr, s)
+		if took {
 			return res, err
 		}
+		again, ok := resent(req)
+		if !ok {
+			return nil, err
+		}
+		req = again
 	}
-	s := quicServer{d.Key(), addr}
 	if d.State.isBroken(s) {
 		return rt.tcpRoundTrip(req, addr)
 	}
@@ -340,7 +345,17 @@ func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, a
 						}
 					}()
 				}
-				return t3.RoundTripOpt(req, http3.RoundTripOpt{OnlyCachedConn: true})
+				res, took, err := d.onQUIC(rt, t3, req, addr, s)
+				if took {
+					return res, err
+				}
+				// The connection went before the request did, or refused it
+				// unprocessed: TCP's takes it.
+				again, ok := resent(req)
+				if !ok {
+					return nil, err
+				}
+				return rt.tcpRoundTrip(again, addr)
 			}
 			quicErr = err
 			if tcpStarted && !tcpOpen {
@@ -367,6 +382,53 @@ func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, a
 			return nil, req.Context().Err()
 		}
 	}
+}
+
+// onQUIC sends req on addr's QUIC connection, and says false when that
+// connection could not take it (it went before the request did, or refused
+// it unprocessed), the request's body closed then as after any failure. A
+// request it failed before its answer, for whatever reason but its own
+// context's, goes again over TCP, its body again, where the profile says
+// (quic.retry_over_tcp): Chromium's QuicHttpStream says ERR_QUIC_PROTOCOL_ERROR
+// of any request it sent that failed (ComputeResponseStatus), which
+// HttpNetworkTransaction restarts with alternative services off
+// (retry_without_alt_svc_on_quic_errors). QUIC to s is broken once TCP has
+// answered (MarkAlternativeServiceBroken, once Chromium has read the body).
+func (d *dnsH3) onQUIC(rt *roundTripper, t3 *http3.Transport, req *http.Request, addr string, s quicServer) (*http.Response, bool, error) {
+	res, err := t3.RoundTripOpt(req, http3.RoundTripOpt{OnlyCachedConn: true})
+	if errors.Is(err, http3.ErrNoCachedConn) {
+		return nil, false, err
+	}
+	if err == nil || !rt.behavior.Flag("quic.retry_over_tcp") || req.Context().Err() != nil {
+		return res, true, err
+	}
+	again, ok := resent(req)
+	if !ok {
+		return nil, true, err
+	}
+	res, err = rt.tcpRoundTrip(again, addr)
+	if err == nil {
+		d.State.markBroken(s, rt.behavior)
+	}
+	return res, true, err
+}
+
+// resent is req to send again, with its body again when it has one, and
+// false when that body cannot be had again.
+func resent(req *http.Request) (*http.Request, bool) {
+	if req.Body == nil || req.Body == http.NoBody {
+		return req, true
+	}
+	if req.GetBody == nil {
+		return nil, false
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, false
+	}
+	again := req.Clone(req.Context())
+	again.Body = body
+	return again, true
 }
 
 // apart is ctx without its cancellation and with its deadline: what a
