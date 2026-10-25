@@ -66,6 +66,10 @@ type originSays struct {
 	// quicFails, when it says so, has its HTTP/3 fail the request it is
 	// given instead of answering it.
 	quicFails func(w http.ResponseWriter, r *http.Request, conn *quic.Conn) bool
+	// quicCloses has its QUIC server end each connection as it takes it, with
+	// H3_SETTINGS_ERROR, as a client whose ALPS the server's settings belie
+	// does.
+	quicCloses bool
 }
 
 func newH3Origin(t *testing.T, says originSays) *h3Origin {
@@ -176,6 +180,9 @@ func newH3Origin(t *testing.T, says originSays) *h3Origin {
 			o.mu.Lock()
 			o.quic = append(o.quic, conn)
 			o.mu.Unlock()
+			if says.quicCloses {
+				_ = conn.CloseWithError(0x109, "settings")
+			}
 			return ctx
 		}}
 	go func() { _ = h3.Serve(udp) }()
@@ -1325,6 +1332,27 @@ func TestARequestQUICFailedIsNotSentAgainWhenItsProfileSaysOrItsBodyCannotBeHadA
 				t.Errorf("TCP asked %d times", o.tcpAsked.Load())
 			}
 		})
+	}
+}
+
+func TestAQUICConnectionThatEndsAsItIsMadeBreaksQUIC(t *testing.T) {
+	// Its server ends it as it takes it: the request goes over TCP, whether
+	// the connection had taken it or not, and QUIC is broken once TCP has
+	// answered, as Chromium's job is when its session closes at once; the
+	// next request makes no QUIC connection.
+	for range 5 {
+		o := newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond, quicCloses: true})
+		state := NewQUICState()
+		c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, state)
+		if got := came(t, c, "https://"+o.addr+"/"); got != "HTTP/2.0" {
+			t.Fatalf("came over %q, want TCP's", got)
+		}
+		if !state.isBroken(quicServer{"https://a.test", o.addr}) {
+			t.Fatal("QUIC not broken by a connection that ended at once")
+		}
+		if got := came(t, c, "https://"+o.addr+"/again"); got != "HTTP/2.0" || o.quicConns.Load() != 1 {
+			t.Fatalf("the next came over %q, %d QUIC connections made", got, o.quicConns.Load())
+		}
 	}
 }
 

@@ -334,3 +334,13 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   sends (`datagramsOf`, unix; elsewhere a write is one). tls-forge's
   `fetch --pcap` keeps QUIC connections so. Tests `quictap_test.go`,
   `quictap_unix_test.go`; 20 mutants, all killed.
+- A QUIC connection a race made that ended before its request went (its
+  client closed it on the server's settings against ALPS, say) breaks QUIC
+  once TCP has answered the request (2026-10-25, `dnsh3.go`,
+  `quicAttempt.failed`), as Chromium's job does when its session closes at
+  once; a refused stream leaves the connection up and QUIC as it was.
+  Before, QUIC stayed unbroken when the close came before the request, and
+  the next request made a QUIC connection again: tls-forge's
+  `TestAControlStreamsSettingsAreHeldToWhatALPSGaveAsChromes` failed 7 to 12
+  runs of 40 under `-race`, none of 40 since. Test
+  `TestAQUICConnectionThatEndsAsItIsMadeBreaksQUIC`; 5 mutants, all killed.
