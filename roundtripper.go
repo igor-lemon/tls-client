@@ -137,6 +137,9 @@ type roundTripper struct {
 	// (wasUnusedIdle).
 	unusedStash map[string]bool
 	unusedIdle  sync.Map
+	// peeks are the peeks (peek) of the connections that wait to be taken
+	// up, by connection.
+	peeks sync.Map
 
 	// dnsH3 has requests go over HTTP/3 where an HTTPS record names h3
 	// (WithHTTP3FromDNS); nil, never.
@@ -232,12 +235,23 @@ func (rt *roundTripper) dropCachedTransport(addr string, stale http.RoundTripper
 }
 
 // ReapIdleConnections closes, in every HTTP/1.1 transport of the round tripper,
-// the idle connections an on-request idle timeout finds too old.
+// the idle connections an on-request idle timeout finds too old, and the
+// connections left waiting to be taken up past their time or closed by their
+// servers.
 func (rt *roundTripper) ReapIdleConnections() {
+	rt.ReapIdleConnectionsBut("")
+}
+
+// ReapIdleConnectionsBut is ReapIdleConnections but for the address addr,
+// whose request is about to go: Chromium asks whether that request's socket
+// group has a socket before its own socket request cleans the group up
+// (dnsH3.roundTrip), while another's request cleans up every group.
+func (rt *roundTripper) ReapIdleConnectionsBut(addr string) {
+	rt.reapUnused(addr)
 	rt.cachedTransportsLck.Lock()
 	defer rt.cachedTransportsLck.Unlock()
-	for _, transport := range rt.cachedTransports {
-		if tr, ok := transport.(interface{ ReapIdleConns() }); ok {
+	for key, transport := range rt.cachedTransports {
+		if tr, ok := transport.(interface{ ReapIdleConns() }); ok && key != addr {
 			tr.ReapIdleConns()
 		}
 	}
@@ -252,12 +266,12 @@ func (rt *roundTripper) CloseIdleConnections() {
 	rt.dnsH3.closeIdle()
 	rt.Lock()
 	for key, conn := range rt.changedConnections {
-		conn.Close()
+		rt.letGo(conn)
 		delete(rt.changedConnections, key)
 	}
 	// A connection never taken up is idle too.
 	for key, conn := range rt.cachedConnections {
-		_ = conn.Close()
+		rt.letGo(conn)
 		delete(rt.cachedConnections, key)
 		delete(rt.stashedAt, key)
 		delete(rt.unusedStash, key)
@@ -794,9 +808,10 @@ func (rt *roundTripper) leaveChanged(addr string, conn *tls.UConn) {
 	rt.Lock()
 	defer rt.Unlock()
 	if previous := rt.changedConnections[addr]; previous != nil {
-		_ = previous.Close()
+		rt.letGo(previous)
 	}
 	rt.changedConnections[addr] = conn
+	rt.peek(conn)
 }
 
 // handshake dials addr and shakes hands as the profile says, within ctx, and
@@ -940,10 +955,11 @@ func (rt *roundTripper) takeStashed(addr string) net.Conn {
 		rt.stashed.Delete(addr)
 		unused := rt.unusedStash[addr]
 		delete(rt.unusedStash, addr)
-		if !connected(conn) {
-			_ = conn.Close()
+		if !rt.alive(conn) {
+			rt.letGo(conn)
 			return nil
 		}
+		rt.peeks.Delete(conn)
 		if unused {
 			rt.unusedIdle.Store(conn, true)
 		}

@@ -293,3 +293,16 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   given over TCP, which a QUIC server cannot resume, and the other way round
   (measured with tls-forge's library: a page's fetch() 40 s after it, 4 of
   4). Tests `tickets_test.go`.
+- A TCP connection that waits unused for a request (2026-10-25, `dnsh3.go`,
+  `roundtripper.go`, `client.go`): read as it waits (`peek`, utls's
+  `Conn.Peek`, as Chromium's `SSLClientSocketImpl::DoPeek`), its session
+  tickets cached as they come and its data left for its transport, one its
+  server closed known as such (`alive`); cleaned up as Chromium's pool cleans
+  its idle sockets up when a socket is asked of it (`CleanupIdleSockets`, no
+  timer): by every request that asks the round tripper for a connection,
+  the one of its own address after the request asked whether one is there
+  (`free`, `reapUnused(but)`, `ReapIdleConnectionsBut`, which tls-forge calls
+  for every request), and before a request QUIC failed goes again over TCP;
+  where the connection there went so, TCP goes at once beside QUIC. Measured
+  on Chrome 155 (tls-forge's `bench/unused`). Tests `waiting_test.go`; 24
+  mutants, 23 killed, one equivalent (a time limit reached exactly).

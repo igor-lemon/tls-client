@@ -314,9 +314,16 @@ func (c *httpClient) CloseIdleConnections() {
 
 // ReapIdleConnections closes the idle HTTP/1.1 connections an on-request idle
 // timeout (TransportOptions.IdleConnReapOnRequest) finds too old, in every
-// transport of the round tripper the client built.
+// transport of the round tripper the client built, and the connections that
+// lost a race to QUIC and wait past their time or closed by their servers.
 func (c *httpClient) ReapIdleConnections() {
 	c.built.ReapIdleConnections()
+}
+
+// ReapIdleConnectionsBut is ReapIdleConnections but for the address addr
+// (host:port), whose request is about to go.
+func (c *httpClient) ReapIdleConnectionsBut(addr string) {
+	c.built.ReapIdleConnectionsBut(addr)
 }
 
 // GetDialer() returns the underlying Dialer
