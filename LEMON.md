@@ -246,3 +246,17 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   `connected_unix_test.go`, `h3keylog_test.go`; 54 mutants: 53 killed, and
   the last was of a branch that went (accepting an ECH refusal over QUIC: a
   refused offer fails the connection whatever its certificate says).
+
+- A QUIC connection's socket connected to its server where the profile says
+  `quic.connected_socket` (2026-10-25, `chrome_quic_dial.go`: `quicSocket`
+  writes without an address, `newConnectedSocket`): an ICMP unreachable the
+  server's host answers with ends the connection at once, as Chrome's does,
+  where quic-go's unconnected socket hears nothing of it and retransmits
+  until its handshake timeout. Tests `connected_socket_test.go` (IPv4 and
+  IPv6, the refusal against the wait).
+- The QUIC hello keeps ALPS for the protocols of `quic.alps_protocols`
+  (2026-10-25, `profileQUICSpec`; `quicExtensionID` names 17513 and 17613),
+  an extension a profile wraps for its TCP hello taken as itself (`Unwrap`:
+  tls-forge's ALPS bound to its ALPN, whose h2 a QUIC hello's h3 would
+  leave empty). Tests `TestAQUICHelloOffersALPSAsItsProfileSays`,
+  `TestAQUICHandshakeOfALPSSaysTheClientsEmptySettings`.

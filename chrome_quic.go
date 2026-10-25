@@ -35,6 +35,11 @@ func profileQUICSpec(id tls.ClientHelloID, pol behavior.Policy) func([]byte) (tl
 		exts := make([]tls.TLSExtension, 0, len(spec.Extensions))
 		var psk tls.PreSharedKeyExtension
 		for _, ext := range spec.Extensions {
+			if u, ok := ext.(interface{ Unwrap() tls.TLSExtension }); ok {
+				// an extension a profile wraps for a TCP hello (tls-forge's
+				// ALPS bound to its ALPN) goes as itself
+				ext = u.Unwrap()
+			}
 			if !slices.Contains(pol.Numbers("quic.preserve_extensions"), quicExtensionID(ext)) {
 				continue
 			}
@@ -69,10 +74,13 @@ func profileQUICSpec(id tls.ClientHelloID, pol behavior.Policy) func([]byte) (tl
 				e.KeyShares = shares
 			case *tls.ALPNExtension:
 				e.AlpnProtocols = pol.Strings("quic.alpn")
-			case *tls.ApplicationSettingsExtension, *tls.ApplicationSettingsExtensionNew:
-				// H3 has no ALPS settings-bootstrap implementation yet. Do not offer
-				// a protocol extension whose negotiated result would be ignored.
-				continue
+			case *tls.ApplicationSettingsExtension:
+				// ALPS for the protocols of quic.alps_protocols, with no settings
+				// of the client's own (as Chrome's QUIC hello), which the HTTP/3
+				// transport reads the server's of (h3.alps_reader)
+				e.SupportedProtocols = pol.Strings("quic.alps_protocols")
+			case *tls.ApplicationSettingsExtensionNew:
+				e.SupportedProtocols = pol.Strings("quic.alps_protocols")
 			case *tls.SupportedVersionsExtension:
 				e.Versions = nil
 				for _, n := range pol.Numbers("quic.tls_versions") {
@@ -124,6 +132,10 @@ func quicExtensionID(ext tls.TLSExtension) uint64 {
 		return 43
 	case tls.PreSharedKeyExtension:
 		return 41
+	case *tls.ApplicationSettingsExtension:
+		return 17513
+	case *tls.ApplicationSettingsExtensionNew:
+		return 17613
 	}
 	return ^uint64(0)
 }
