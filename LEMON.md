@@ -281,3 +281,8 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   `HTTPStream`, which sends a 200 first, a client read that answer before the
   reset now and then, and the tests of a request QUIC failed saw a 200 with
   a failing body (about one full `-race` run in three).
+- Tests (2026-10-25): a client of `h3Client` waits, when its test ends, for
+  the QUIC connections it is still making (`dnsH3.attempts`, up to 15 s): a
+  QUIC connection made apart after a test's last answer read `dialQUIC`
+  while the next test set it (a data race under `-race`, one full run in
+  five), and could have dialed through that test's stand-in.
