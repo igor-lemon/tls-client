@@ -275,3 +275,9 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   `originSays.quicFails`, `h3Origin.tcpAsked`); 14 mutants, 13 killed, one
   equivalent (a request whose context ended sent over TCP fails there before
   anything is written: fhttp's `encodeAndWriteHeaders` asks the context).
+- Tests (2026-10-25): `resetting` resets a request's stream before any
+  answer (`unanswered`, the response writer's stream read through
+  reflection), as a server that cannot read the request does: through
+  `HTTPStream`, which sends a 200 first, a client read that answer before the
+  reset now and then, and the tests of a request QUIC failed saw a 200 with
+  a failing body (about one full `-race` run in three).
