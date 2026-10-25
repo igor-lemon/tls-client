@@ -286,3 +286,10 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   QUIC connection made apart after a test's last answer read `dialQUIC`
   while the next test set it (a data race under `-race`, one full run in
   five), and could have dialed through that test's stand-in.
+- QUIC's TLS sessions apart from TCP's (2026-10-25, `roundTripper.quicSessionCache`
+  for every HTTP/3 transport: a record's h3, `cache`'s, the racer's), as
+  Chromium keeps them (its QUIC session cache and `SSLClientSessionCache`):
+  with one cache, by name, a QUIC connection offered the ticket a server had
+  given over TCP, which a QUIC server cannot resume, and the other way round
+  (measured with tls-forge's library: a page's fetch() 40 s after it, 4 of
+  4). Tests `tickets_test.go`.
