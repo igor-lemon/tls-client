@@ -306,6 +306,8 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 	if cfg.transportOptions != nil {
 		utlsConfig.RootCAs = cfg.transportOptions.RootCAs
 		utlsConfig.Certificates = cfg.transportOptions.Certificates
+		// A QUIC connection's secrets go where a TCP one's do.
+		utlsConfig.KeyLogWriter = cfg.transportOptions.KeyLogWriter
 	}
 
 	if cfg.serverNameOverwrite != "" {
