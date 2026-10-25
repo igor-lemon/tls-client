@@ -20,7 +20,7 @@ type protocolRacer struct {
 	protocolCache   map[string]string
 	protocolCacheMu sync.RWMutex
 
-	clientSessionCache  tls.ClientSessionCache
+	quicSessionCache    tls.ClientSessionCache
 	insecureSkipVerify  bool
 	serverNameOverwrite string
 	transportOptions    *TransportOptions
@@ -48,7 +48,7 @@ type protocolRacer struct {
 }
 
 func newProtocolRacer(
-	clientSessionCache tls.ClientSessionCache,
+	quicSessionCache tls.ClientSessionCache,
 	insecureSkipVerify bool,
 	serverNameOverwrite string,
 	transportOptions *TransportOptions,
@@ -68,7 +68,7 @@ func newProtocolRacer(
 ) *protocolRacer {
 	return &protocolRacer{
 		protocolCache:          make(map[string]string),
-		clientSessionCache:     clientSessionCache,
+		quicSessionCache:       quicSessionCache,
 		insecureSkipVerify:     insecureSkipVerify,
 		serverNameOverwrite:    serverNameOverwrite,
 		transportOptions:       transportOptions,
@@ -246,7 +246,7 @@ func (pr *protocolRacer) getHTTP3Config() *http3Config {
 		clientHelloID:          pr.clientHelloID,
 		chromeBehavior:         pr.chromeBehavior,
 		behavior:               pr.behavior.Clone(),
-		clientSessionCache:     pr.clientSessionCache,
+		clientSessionCache:     pr.quicSessionCache,
 		insecureSkipVerify:     pr.insecureSkipVerify,
 		serverNameOverwrite:    pr.serverNameOverwrite,
 		transportOptions:       pr.transportOptions,

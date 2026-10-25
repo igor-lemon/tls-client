@@ -39,6 +39,11 @@ type roundTripper struct {
 	bandwidthTracker bandwidth.BandwidthTracker
 
 	clientSessionCache tls.ClientSessionCache
+	// quicSessionCache keeps the sessions of QUIC connections apart from
+	// those of TCP's, as Chromium keeps them (its QUIC session cache and
+	// SSLClientSessionCache): a ticket a server gave over one is offered only
+	// over the same.
+	quicSessionCache tls.ClientSessionCache
 
 	badPinHandlerFunc BadPinHandlerFunc
 	// cachedConnections and dialLocks are the roundTripper's own mutex's.
@@ -706,7 +711,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 			chromeBehavior:         rt.chromeBehavior,
 			behavior:               rt.behavior.Clone(),
 			clientHelloID:          rt.clientHelloId,
-			clientSessionCache:     rt.clientSessionCache,
+			clientSessionCache:     rt.quicSessionCache,
 			insecureSkipVerify:     rt.insecureSkipVerify,
 			serverNameOverwrite:    rt.serverNameOverwrite,
 			transportOptions:       rt.transportOptions,
@@ -1139,12 +1144,13 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		return nil, fmt.Errorf("can not instantiate certificate pinner: %w", err)
 	}
 
-	var clientSessionCache tls.ClientSessionCache
+	var clientSessionCache, quicSessionCache tls.ClientSessionCache
 
 	withSessionResumption := !disableSessionTickets && supportsSessionResumption(clientProfile.GetClientHelloId())
 
 	if withSessionResumption {
 		clientSessionCache = tls.NewLRUClientSessionCache(32)
+		quicSessionCache = tls.NewLRUClientSessionCache(32)
 	}
 
 	rt := &roundTripper{
@@ -1156,6 +1162,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		badPinHandlerFunc:           badPinHandlerFunc,
 		transportOptions:            transportOptions,
 		clientSessionCache:          clientSessionCache,
+		quicSessionCache:            quicSessionCache,
 		serverNameOverwrite:         serverNameOverwrite,
 		settings:                    clientProfile.GetSettings(),
 		settingsOrder:               clientProfile.GetSettingsOrder(),
@@ -1200,7 +1207,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 	// Create protocol racer if HTTP/3 racing is enabled
 	if enableH3Racing {
 		rt.racer = newProtocolRacer(
-			clientSessionCache,
+			quicSessionCache,
 			insecureSkipVerify,
 			serverNameOverwrite,
 			transportOptions,
