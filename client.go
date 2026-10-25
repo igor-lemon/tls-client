@@ -287,6 +287,7 @@ func buildFromConfig(logger Logger, config *httpClientConfig) (*http.Client, pro
 		return nil, nil, nil, clientProfile, err
 	}
 	transport.(*roundTripper).coalesceWith(config.lookup)
+	transport.(*roundTripper).dnsH3 = newDNSH3(config.http3FromDNS)
 
 	timeout := config.timeout
 	if config.withoutRequestTimeout {
@@ -435,6 +436,7 @@ func (c *httpClient) applyProxy() error {
 		return err
 	}
 	transport.(*roundTripper).coalesceWith(c.config.lookup)
+	transport.(*roundTripper).dnsH3 = newDNSH3(c.config.http3FromDNS)
 
 	c.use(transport.(*roundTripper))
 
