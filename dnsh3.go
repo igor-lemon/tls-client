@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,7 +60,8 @@ func WithHTTP3FromDNS(h HTTP3FromDNS) HttpClientOption {
 
 // dnsH3 is a round tripper's HTTP3FromDNS and the HTTP/3 transport it goes
 // over, made once; attempts are the QUIC connections being made, by address,
-// which a request to one joins.
+// which a request to one joins; altOf, where the QUIC connection made last
+// for an address went, when an alternative service led to it.
 type dnsH3 struct {
 	HTTP3FromDNS
 	once     sync.Once
@@ -67,13 +69,26 @@ type dnsH3 struct {
 	err      error
 	mu       sync.Mutex
 	attempts map[string]*quicAttempt
+	altOf    map[string]string
+}
+
+// quicJob is where a request's QUIC connection goes, as one of Chromium's
+// QUIC jobs: to its endpoint, on port (0: the request's own), an alternative
+// service's dest (host:port) or, empty, the origin the HTTPS record of its
+// name led to; server is the service that breaks or works as one, origin the
+// server its RTT is kept for and TCP waits by.
+type quicJob struct {
+	dest     string
+	server   quicServer
+	origin   quicServer
+	endpoint QUICEndpoint
+	port     uint16
 }
 
 // quicAttempt is a QUIC connection being made: underWay is closed once its
 // first packet has gone, when a request's TCP connection begins to wait.
 type quicAttempt struct {
-	server   quicServer
-	endpoint QUICEndpoint
+	quicJob
 	underWay chan struct{}
 	began    sync.Once
 }
@@ -87,7 +102,7 @@ func newDNSH3(h *HTTP3FromDNS) *dnsH3 {
 	if h == nil {
 		return nil
 	}
-	return &dnsH3{HTTP3FromDNS: *h, attempts: map[string]*quicAttempt{}}
+	return &dnsH3{HTTP3FromDNS: *h, attempts: map[string]*quicAttempt{}, altOf: map[string]string{}}
 }
 
 // uses says whether req goes as d says: https, on a client that may speak
@@ -152,10 +167,14 @@ func (d *dnsH3) dial(rt *roundTripper) func(context.Context, string, *tls.Config
 		if a == nil || len(a.endpoint.Addrs) == 0 {
 			return nil, errNoQUICEndpoint
 		}
-		_, portText, _ := net.SplitHostPort(addr)
-		port, err := strconv.ParseUint(portText, 10, 16)
-		if err != nil {
-			return nil, err
+		port := uint64(a.port)
+		if port == 0 {
+			_, portText, _ := net.SplitHostPort(addr)
+			p, err := strconv.ParseUint(portText, 10, 16)
+			if err != nil {
+				return nil, err
+			}
+			port = p
 		}
 		remote := net.UDPAddrFromAddrPort(netip.AddrPortFrom(a.endpoint.Addrs[0].Unmap(), uint16(port)))
 		// A refusal fails the connection whatever its certificate says, and
@@ -167,7 +186,7 @@ func (d *dnsH3) dial(rt *roundTripper) func(context.Context, string, *tls.Config
 		if err != nil {
 			return nil, err
 		}
-		go d.watch(rt, conn, a.server)
+		go d.watch(rt, conn, a.server, a.origin)
 		return conn, nil
 	}
 }
@@ -179,17 +198,18 @@ type watched interface {
 	ConnectionStats() quic.ConnectionStats
 }
 
-// watch keeps, once conn goes away, its smoothed RTT for s where its handshake
-// was done, unless QUIC to s is broken then (QuicSessionPool's
-// ServerNetworkStats of a session that goes away).
-func (d *dnsH3) watch(rt *roundTripper, conn watched, s quicServer) {
+// watch keeps, once conn goes away, its smoothed RTT for origin where its
+// handshake was done, unless QUIC to s, the service it went to, is broken
+// then (QuicSessionPool's ServerNetworkStats of a session that goes away,
+// kept for its server).
+func (d *dnsH3) watch(rt *roundTripper, conn watched, s, origin quicServer) {
 	<-conn.Context().Done()
 	if d.State.isBroken(s) {
 		return
 	}
 	select {
 	case <-conn.HandshakeComplete():
-		d.State.setRTT(s, conn.ConnectionStats().SmoothedRTT, rt.behavior)
+		d.State.setRTT(origin, conn.ConnectionStats().SmoothedRTT, rt.behavior)
 	default:
 	}
 }
@@ -201,15 +221,20 @@ var (
 )
 
 // attempt is the QUIC connection to addr being made, joined when one is, else
-// a new one to ep, with whether it is new.
-func (d *dnsH3) attempt(addr string, s quicServer, ep QUICEndpoint) (*quicAttempt, bool) {
+// a new one as job says, with whether it is new.
+func (d *dnsH3) attempt(addr string, job quicJob) (*quicAttempt, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if a := d.attempts[addr]; a != nil {
 		return a, false
 	}
-	a := &quicAttempt{server: s, endpoint: ep, underWay: make(chan struct{})}
+	a := &quicAttempt{quicJob: job, underWay: make(chan struct{})}
 	d.attempts[addr] = a
+	if job.dest == "" {
+		delete(d.altOf, addr)
+	} else {
+		d.altOf[addr] = job.dest
+	}
 	return a, true
 }
 
@@ -229,21 +254,63 @@ func (d *dnsH3) preconnect(t3 *http3.Transport, ctx context.Context, addr string
 	return err
 }
 
-// roundTrip sends req to addr as Chromium's JobController would with a DNS
-// ALPN job: on the QUIC connection up for addr; else over TCP when QUIC to
-// addr is broken; at once over a TCP connection addr has, a QUIC connection
-// made apart where its record names h3 (the main job is not held back then,
+// roundTrip sends req to addr (send), and keeps what its answer says of
+// addr's alternative services (learn).
+func (d *dnsH3) roundTrip(rt *roundTripper, req *http.Request, addr string) (*http.Response, error) {
+	res, err := d.send(rt, req, addr)
+	if err == nil {
+		d.learn(rt, addr, res)
+	}
+	return res, err
+}
+
+// learn keeps what an answer of addr says of its alternative services, where
+// the profile follows them (quic.alt_svc), as Chromium's
+// HttpNetworkTransaction::ProcessAltSvcHeader: the Alt-Svc fields, joined as
+// one value, replace what was kept when quiche reads them whole; a value it
+// cannot read changes nothing, nor does an answer of 421.
+func (d *dnsH3) learn(rt *roundTripper, addr string, res *http.Response) {
+	values := res.Header.Values("Alt-Svc")
+	if res.StatusCode == http.StatusMisdirectedRequest || !rt.behavior.Flag("quic.alt_svc") {
+		return
+	}
+	if entries, ok := parseAltSvc(strings.Join(values, ", ")); ok {
+		d.State.learnAltSvc(quicServer{d.Key(), addr}, entries, rt.behavior)
+	}
+}
+
+// taking says where the QUIC connection made last for addr went, the server
+// it breaks or works as, and whether it takes a request: one an HTTPS record
+// led to does; one an alternative service led to while addr advertises one
+// to go to there still (alts), as Chromium asks for a session to an
+// alternative service it would go to (GetAdvertisedAltSvcInternal).
+func (d *dnsH3) taking(addr string, alts []string) (quicServer, bool) {
+	d.mu.Lock()
+	dest, byAlt := d.altOf[addr]
+	d.mu.Unlock()
+	if !byAlt {
+		return quicServer{d.Key(), addr}, true
+	}
+	return quicServer{d.Key(), dest}, slices.Contains(alts, dest)
+}
+
+// send sends req to addr as Chromium's JobController would with an
+// alternative job or a DNS ALPN job: on the QUIC connection up for addr that
+// takes it; else to the first alternative service addr advertises
+// (altRoundTrip); else over TCP when QUIC to addr is broken; at once over a
+// TCP connection addr has, a QUIC connection made apart where its record
+// names h3 (the main job is not held back then,
 // quic.tcp_waits_with_connection); else the two raced, TCP at once beside
 // QUIC where the connection addr had went as the connections that wait were
 // cleaned up.
-func (d *dnsH3) roundTrip(rt *roundTripper, req *http.Request, addr string) (*http.Response, error) {
+func (d *dnsH3) send(rt *roundTripper, req *http.Request, addr string) (*http.Response, error) {
 	t3, err := d.transport(rt)
 	if err != nil {
 		return nil, err
 	}
-	s := quicServer{d.Key(), addr}
-	if t3.HasConn(addr) {
-		res, took, err := d.onQUIC(rt, t3, req, addr, s)
+	alts := d.alternatives(rt, addr)
+	if made, takes := d.taking(addr, alts); takes && t3.HasConn(addr) {
+		res, took, err := d.onQUIC(rt, t3, req, addr, made)
 		if took {
 			return res, err
 		}
@@ -259,6 +326,10 @@ func (d *dnsH3) roundTrip(rt *roundTripper, req *http.Request, addr string) (*ht
 	// cleans up: one there, even one that goes then, holds no main job back.
 	free := !rt.behavior.Flag("quic.tcp_waits_with_connection") && rt.hasTCPConn(addr)
 	rt.reapUnused("")
+	if len(alts) > 0 {
+		return d.altRoundTrip(rt, t3, req, addr, alts[0])
+	}
+	s := quicServer{d.Key(), addr}
 	if d.State.isBroken(s) {
 		return rt.tcpRoundTrip(req, addr)
 	}
@@ -270,7 +341,7 @@ func (d *dnsH3) roundTrip(rt *roundTripper, req *http.Request, addr string) (*ht
 				close(quicDone)
 				return
 			}
-			a, _ := d.attempt(addr, s, ep)
+			a, _ := d.attempt(addr, quicJob{server: s, origin: s, endpoint: ep})
 			quicDone <- d.preconnect(t3, ctx, addr, a)
 		}()
 		res, err := rt.tcpRoundTrip(req, addr)
@@ -282,7 +353,36 @@ func (d *dnsH3) roundTrip(rt *roundTripper, req *http.Request, addr string) (*ht
 	if !h3 {
 		return rt.tcpRoundTrip(req, addr)
 	}
-	return d.race(rt, t3, req, addr, s, ep, free)
+	return d.race(rt, t3, req, addr, quicJob{server: s, origin: s, endpoint: ep}, free)
+}
+
+// altRoundTrip sends req to addr as Chromium's JobController would with an
+// alternative job to dest: a QUIC connection to dest's first address and
+// port, named as addr's host is, and the request's TCP connection held back
+// behind it whatever connection addr has (the main job is blocked), as long
+// as the session's state says of addr; but at once over an HTTP/2 connection
+// addr has (quic.alt_svc_tcp_waits_with_h2), the QUIC connection made
+// apart. The first up takes the request, the other made apart; a dest whose
+// name does not resolve leaves the request to TCP.
+func (d *dnsH3) altRoundTrip(rt *roundTripper, t3 *http3.Transport, req *http.Request, addr, dest string) (*http.Response, error) {
+	_, ep, _ := d.Endpoint(req.Context(), dest)
+	if len(ep.Addrs) == 0 {
+		return rt.tcpRoundTrip(req, addr)
+	}
+	_, portText, _ := net.SplitHostPort(dest)
+	port, _ := strconv.ParseUint(portText, 10, 16)
+	job := quicJob{dest: dest, server: quicServer{d.Key(), dest}, origin: quicServer{d.Key(), addr}, endpoint: ep, port: uint16(port)}
+	if !rt.behavior.Flag("quic.alt_svc_tcp_waits_with_h2") && rt.hasHTTP2Conn(addr) {
+		quicDone := make(chan error, 1)
+		go func() {
+			a, _ := d.attempt(addr, job)
+			quicDone <- d.preconnect(t3, req.Context(), addr, a)
+		}()
+		res, err := rt.tcpRoundTrip(req, addr)
+		go d.settled(job.server, quicDone, err == nil, rt)
+		return res, err
+	}
+	return d.race(rt, t3, req, addr, job, false)
 }
 
 // settled marks s broken when its QUIC connection failed where TCP did not
@@ -294,13 +394,14 @@ func (d *dnsH3) settled(s quicServer, quicDone chan error, tcpWorked bool, rt *r
 	}
 }
 
-// race makes req's QUIC connection and, as long after it is under way as the
-// session's state says (at once when free, a main job not held back), its
-// TCP one; the first up takes the request. TCP goes at once when QUIC fails,
-// and a request both fail says TCP's error, as Chromium reports its main
-// job's.
-func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, addr string, s quicServer, ep QUICEndpoint, free bool) (*http.Response, error) {
-	a, made := d.attempt(addr, s, ep)
+// race makes req's QUIC connection as job says and, as long after it is under
+// way as the session's state says of job's origin (at once when free, a main
+// job not held back), its TCP one, or takes a TCP connection addr has then;
+// the first up takes the request. TCP goes at once when QUIC fails, and a
+// request both fail says TCP's error, as Chromium reports its main job's.
+func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, addr string, job quicJob, free bool) (*http.Response, error) {
+	s := job.server
+	a, made := d.attempt(addr, job)
 	quicDone := make(chan error, 1)
 	if made {
 		go func() { quicDone <- d.preconnect(t3, req.Context(), addr, a) }()
@@ -315,6 +416,12 @@ func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, a
 	startTCP := func() {
 		if !tcpStarted {
 			tcpStarted = true
+			// A connection addr has takes the request at once, as a main job
+			// takes an idle socket or a session its pool has.
+			if rt.hasTCPConn(addr) {
+				tcpDone <- nil
+				return
+			}
 			go func() {
 				// Its connection is made whoever takes the request, as a
 				// connect job goes on for the pool once its request went
@@ -336,7 +443,7 @@ func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, a
 		select {
 		case <-underWay:
 			underWay = nil
-			if wait := d.State.tcpWait(s, rt.behavior); wait > 0 {
+			if wait := d.State.tcpWait(job.origin, rt.behavior); wait > 0 {
 				timer := time.NewTimer(wait)
 				defer timer.Stop()
 				tcpWait = timer.C
@@ -474,6 +581,15 @@ func (rt *roundTripper) hasTCPConn(addr string) bool {
 		return stashed || settingUp || t.HasConn("https", addr)
 	}
 	return stashed || settingUp
+}
+
+// hasHTTP2Conn says whether addr has an HTTP/2 connection a request may go
+// on, made or being made (Chromium's HasAvailableSpdySession).
+func (rt *roundTripper) hasHTTP2Conn(addr string) bool {
+	rt.cachedTransportsLck.Lock()
+	t, ok := rt.cachedTransports[addr].(*http2.Transport)
+	rt.cachedTransportsLck.Unlock()
+	return ok && t.HasConn(addr)
 }
 
 // connectTCP makes the TCP connection a request to addr goes on and leaves it
