@@ -316,7 +316,19 @@ func h3Client(t *testing.T, policy behavior.Policy, records *recordSays, state *
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(c.CloseIdleConnections)
+	t.Cleanup(func() {
+		c.CloseIdleConnections()
+		// No QUIC connection the client is still making outlives the test:
+		// its dial would read the seams the next test sets.
+		d := c.(*httpClient).built.dnsH3
+		if !waitFor(15*time.Second, func() bool {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			return len(d.attempts) == 0
+		}) {
+			t.Error("a QUIC connection is still being made")
+		}
+	})
 	return c
 }
 
