@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,9 +73,15 @@ func newH3Origin(t *testing.T, says originSays) *h3Origin {
 	o := &h3Origin{}
 	cert := coalescingCert(t, "a.test")
 	// each request answered with the protocol it came over, and its body
-	// after a space when it has one
+	// after a space when it has one; ?alt is its Alt-Svc, ?status its status
 	answer := func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		o.tcpAsked.Add(1)
+		if alt := r.URL.Query().Get("alt"); alt != "" {
+			w.Header().Set("Alt-Svc", alt)
+		}
+		if status, err := strconv.Atoi(r.URL.Query().Get("status")); err == nil {
+			w.WriteHeader(status)
+		}
 		_, _ = io.WriteString(w, r.Proto)
 		if b, _ := io.ReadAll(r.Body); len(b) > 0 {
 			_, _ = io.WriteString(w, " "+string(b))
@@ -151,6 +158,9 @@ func newH3Origin(t *testing.T, says originSays) *h3Origin {
 			if says.quicFails(w, r, conn) {
 				return
 			}
+		}
+		if alt := r.URL.Query().Get("alt"); alt != "" {
+			w.Header().Set("Alt-Svc", alt)
 		}
 		said := r.Proto
 		if r.TLS != nil && r.TLS.ECHAccepted {
@@ -1055,6 +1065,30 @@ func TestQUICThatWorkedOnceHasTCPWaitForItElsewhere(t *testing.T) {
 	}
 }
 
+func TestATCPConnectionWaitsForTheSetupAnotherRequestBegan(t *testing.T) {
+	// A setup of addr begun by another request between the race's look and
+	// its connect: the TCP connection is the setup's, waited for, and none
+	// is made apart from it.
+	rt := &roundTripper{cachedTransports: map[string]http.RoundTripper{}, setups: map[string]*setup{}}
+	s := &setup{done: make(chan struct{})}
+	rt.setups["a.test:443"] = s
+	req, _ := http.NewRequest(http.MethodGet, "https://a.test/", nil)
+	connected := make(chan error, 1)
+	go func() { connected <- rt.connectTCP(req, "a.test:443") }()
+	select {
+	case err := <-connected:
+		t.Fatalf("the connect did not wait for the setup: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(s.done)
+	if err := <-connected; err != nil {
+		t.Fatal(err)
+	}
+	if len(rt.setups) != 1 || rt.setups["a.test:443"] != s {
+		t.Errorf("setups %v, want the one going on alone", rt.setups)
+	}
+}
+
 func TestATCPConnectionThatLostToQUICIsLeftUnused(t *testing.T) {
 	o := newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond})
 	c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, NewQUICState())
@@ -1156,7 +1190,7 @@ func TestAConnectionThatWentAwayBeforeItsHandshakeLeavesNoRTT(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	s := quicServer{"https://a.test", "a.test:443"}
-	d.watch(&roundTripper{behavior: dnsH3Policy(t, nil)}, halfMade{ctx}, s)
+	d.watch(&roundTripper{behavior: dnsH3Policy(t, nil)}, halfMade{ctx}, s, s)
 	if d.State.rttsByKey[s] != nil {
 		t.Error("an RTT kept of a connection whose handshake was not done")
 	}

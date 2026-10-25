@@ -14,7 +14,8 @@ import (
 // failed for where TCP did not and until when they are not tried again
 // (BrokenAlternativeServices), how often each failed lately, and each
 // server's smoothed RTT as its last connection measured it
-// (ServerNetworkStats). A server is the key a client gives (its top-level
+// (ServerNetworkStats), and the alternative services each origin's answers
+// advertised (Alt-Svc). A server is the key a client gives (its top-level
 // site, as Chromium keys them by NetworkAnonymizationKey) and its address.
 // Share one across the clients of a session; NewQUICState makes one.
 type QUICState struct {
@@ -30,6 +31,10 @@ type QUICState struct {
 	recentByKey map[quicServer]*list.Element
 	rtts        *list.List
 	rttsByKey   map[quicServer]*list.Element
+	// alts are the origins' alternative services, the most recently used
+	// first (learnAltSvc, altSvcOf).
+	alts         *list.List
+	altsByOrigin map[quicServer]*list.Element
 }
 
 type quicServer struct{ key, addr string }
@@ -48,7 +53,8 @@ type serverRTT struct {
 func NewQUICState() *QUICState {
 	return &QUICState{now: time.Now, broken: map[quicServer]time.Time{},
 		recent: list.New(), recentByKey: map[quicServer]*list.Element{},
-		rtts: list.New(), rttsByKey: map[quicServer]*list.Element{}}
+		rtts: list.New(), rttsByKey: map[quicServer]*list.Element{},
+		alts: list.New(), altsByOrigin: map[quicServer]*list.Element{}}
 }
 
 // isBroken says whether QUIC to s is not tried now; a break that ended is

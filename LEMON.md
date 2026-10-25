@@ -306,3 +306,23 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   where the connection there went so, TCP goes at once beside QUIC. Measured
   on Chrome 155 (tls-forge's `bench/unused`). Tests `waiting_test.go`; 24
   mutants, 23 killed, one equivalent (a time limit reached exactly).
+- HTTP/3 to the alternative an origin's Alt-Svc advertises (2026-10-25,
+  `altsvc.go`, `dnsh3.go`, `quicstate.go`), where the profile says
+  `quic.alt_svc`, as Chromium 155's alternative job: the value read as
+  quiche's `SpdyAltSvcWireFormat` reads it (the fields joined; whole or not
+  at all; `clear`; `ma`, a day without), each answer but a 421's replacing
+  what its origin advertised, the h3 ones kept (QUIC version 1) for the
+  origin and the client's top-level site in `QUICState` (least recently
+  used forgotten first, `quic.server_rtts_max` origins); the first
+  alternative the profile allows that is not broken taken
+  (`quic.alt_svc_user_ports`, `quic.alt_svc_remote_hosts`): a QUIC
+  connection to its port, and host where it names one, named as the origin
+  is, the request's TCP held back behind it by the wait of the origin's
+  RTT, whatever connection the origin has, but at once on an HTTP/2 one
+  (`quic.alt_svc_tcp_waits_with_h2`), QUIC made apart. A QUIC connection
+  made for an alternative takes requests while the origin advertises it
+  (`taking`), a request it fails breaks the alternative, and its RTT is the
+  origin's. A race's TCP takes a connection the origin has once the wait
+  ends, as a main job takes an idle socket. Measured on Chrome 155
+  (tls-forge's `bench/alt`). Tests `altsvc_test.go`; 81 mutants of the
+  parser, store and choice and 28 of the rest, all killed.

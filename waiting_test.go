@@ -436,10 +436,13 @@ func TestAConnectionThatWaitsIsLetGoOfOnceItsServerClosedIt(t *testing.T) {
 }
 
 func TestATCPConnectionThatWaitsHoldsTCPBackWhereTheProfileSaysTCPWaits(t *testing.T) {
-	// quic.tcp_waits_with_connection: the request races whatever waits, and
-	// QUIC, up first, takes it.
+	// quic.tcp_waits_with_connection: the request's TCP waits behind QUIC
+	// whatever waits (1.5 s, the RTT made a second's), and QUIC, up first,
+	// takes it.
 	o := newH3Origin(t, originSays{tcpLag: 100 * time.Millisecond})
-	c := h3Client(t, dnsH3Policy(t, map[string]string{"quic.tcp_waits_with_connection": "true"}), &recordSays{h3: true}, NewQUICState())
+	policy := dnsH3Policy(t, map[string]string{"quic.tcp_waits_with_connection": "true"})
+	state := NewQUICState()
+	c := h3Client(t, policy, &recordSays{h3: true}, state)
 	if got := came(t, c, "https://"+o.addr+"/"); got != "HTTP/3.0" {
 		t.Fatalf("came over %q, want HTTP/3", got)
 	}
@@ -448,7 +451,16 @@ func TestATCPConnectionThatWaitsHoldsTCPBackWhereTheProfileSaysTCPWaits(t *testi
 		t.Fatal("no TCP connection left")
 	}
 	_ = o.quicConn(t, 0).CloseWithError(0, "")
-	time.Sleep(100 * time.Millisecond)
+	s := quicServer{"https://a.test", o.addr}
+	if !waitFor(time.Second, func() bool {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		_, ok := state.rttsByKey[s]
+		return ok
+	}) {
+		t.Fatal("no RTT kept")
+	}
+	state.setRTT(s, time.Second, policy)
 	if got := came(t, c, "https://"+o.addr+"/again"); got != "HTTP/3.0" {
 		t.Errorf("came over %q, want the race's QUIC", got)
 	}
