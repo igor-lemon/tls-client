@@ -80,6 +80,52 @@ func TestASocketTellsItsTapOfEveryDatagram(t *testing.T) {
 	}
 }
 
+func TestASocketReadADatagramAtATimeTellsItsTapOfEach(t *testing.T) {
+	// Where quic-go cannot read a socket in batches (Windows), it reads one
+	// datagram at a time with ReadFrom.
+	peer := loopbackUDP(t)
+	socket := loopbackUDP(t)
+	tap := &tapped{}
+	c := newSentFirst(socket, nil)
+	c.tap = tap
+	for _, b := range []string{"back", "again"} {
+		if _, err := peer.WriteTo([]byte(b), socket.LocalAddr()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	buf := make([]byte, 16)
+	for _, want := range []string{"back", "again"} {
+		n, from, err := c.ReadFrom(buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(buf[:n]) != want || from.String() != peer.LocalAddr().String() {
+			t.Errorf("read %q from %s, want %q from %s", buf[:n], from, want, peer.LocalAddr())
+		}
+	}
+	if _, read, _ := tap.said(); len(read) != 2 || string(read[0]) != "back" || string(read[1]) != "again" {
+		t.Errorf("told of %q read", read)
+	}
+	// A read that fails read nothing: the tap is told of none.
+	_ = socket.Close()
+	if _, _, err := c.ReadFrom(buf); err == nil {
+		t.Fatal("read a closed socket")
+	}
+	if _, read, _ := tap.said(); len(read) != 2 {
+		t.Errorf("told of %q read after the socket closed", read)
+	}
+	// A socket with no tap, waited on for its first datagram alone, reads as
+	// the socket does.
+	other := loopbackUDP(t)
+	untapped := newSentFirst(other, func() {})
+	if _, err := peer.WriteTo([]byte("alone"), other.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	if n, _, err := untapped.ReadFrom(buf); err != nil || string(buf[:n]) != "alone" {
+		t.Errorf("read %q, %v", buf[:n], err)
+	}
+}
+
 func TestAConnectedSocketTellsItsTapOfWhatItWrites(t *testing.T) {
 	peer := loopbackUDP(t)
 	socket, err := net.DialUDP("udp4", nil, peer.LocalAddr().(*net.UDPAddr))

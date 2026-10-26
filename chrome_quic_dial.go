@@ -168,6 +168,17 @@ func (c *quicSocket) wrote(b, oob []byte) {
 	}
 }
 
+// ReadFrom is how quic-go reads a socket it cannot read in batches, one
+// datagram at a time (its basicConn: Windows, and any system it has no OOB
+// path for).
+func (c *quicSocket) ReadFrom(b []byte) (int, net.Addr, error) {
+	n, addr, err := c.UDPConn.ReadFrom(b)
+	if err == nil && c.tap != nil {
+		c.tap.Read(b[:n])
+	}
+	return n, addr, err
+}
+
 func (c *quicSocket) ReadBatch(ms []ipv4.Message, flags int) (int, error) {
 	n, err := c.batch.ReadBatch(ms, flags)
 	if c.tap != nil {
