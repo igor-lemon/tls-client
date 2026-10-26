@@ -333,7 +333,10 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   the system (Linux's `UDP_SEGMENT`, quic-go's GSO) as the datagrams it
   sends (`datagramsOf`, unix; elsewhere a write is one). tls-forge's
   `fetch --pcap` keeps QUIC connections so. Tests `quictap_test.go`,
-  `quictap_unix_test.go`; 20 mutants, all killed.
+  `quictap_unix_test.go`; 20 mutants, all killed. A datagram read by
+  `ReadFrom` is told too (2026-10-26): quic-go reads a socket so where it
+  has no OOB path (its basicConn: Windows), and tls-forge's Windows CI saw
+  every datagram written and none read (run 40222769334).
 - A QUIC connection a race made that ended before its request went (its
   client closed it on the server's settings against ALPS, say) breaks QUIC
   once TCP has answered the request (2026-10-25, `dnsh3.go`,
