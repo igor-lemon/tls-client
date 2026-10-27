@@ -351,3 +351,12 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
 - A6 coordinated pins retain the restored QUIC group checks, nonblocking large
   HTTP3 setup and HTTP2 zero-window/final-stream/terminal-reader fixes.
   Runtime adapter code and browser values are unchanged in this pins-only slice.
+
+## A6 explicit connection window presence
+
+ClientProfile.WithConnectionFlowSet/GetConnectionFlowSet carry presence through
+the direct HTTP2 and HTTP1-negotiated HTTP2 transports. Full owner profiles
+mark zero explicitly; raw legacy catalogue defaults remain unchanged. Value-copy
+ownership is tested in profiles/connection_flow_test.go; the owner's raw peer
+checks actual zero/one/maximum increments. Dependency pins include fhttp e44d38f
+and QUIC898d2ae3.
