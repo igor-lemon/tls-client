@@ -109,6 +109,7 @@ type ClientProfile struct {
 	priorities             []http2.Priority
 	pseudoHeaderOrder      []string
 	connectionFlow         uint32
+	connectionFlowSet      bool
 	streamID               uint32
 	allowHTTP              bool
 	http3Settings          map[uint64]uint64
@@ -246,3 +247,11 @@ func (c ClientProfile) WithHTTP3Parameters(settings map[uint64]uint64, order []u
 	c.http3SendGreaseFrames = grease
 	return c
 }
+
+// WithConnectionFlowSet marks the connection increment as explicit, including
+// zero (no initial WINDOW_UPDATE), without changing legacy preset defaults.
+func (c ClientProfile) WithConnectionFlowSet(explicit bool) ClientProfile {
+	c.connectionFlowSet = explicit
+	return c
+}
+func (c ClientProfile) GetConnectionFlowSet() bool { return c.connectionFlowSet }

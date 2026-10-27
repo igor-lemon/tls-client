@@ -100,6 +100,7 @@ type roundTripper struct {
 
 	cachedTransportsLck sync.Mutex
 	connectionFlow      uint32
+	connectionFlowSet   bool
 
 	forceHttp1   bool
 	disableHttp3 bool
@@ -639,12 +640,13 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 		idleConnectionTimeout, http2IdleTimeout := rt.idleTimeouts()
 
 		t2 := http2.Transport{
-			Behavior:        rt.behavior.Clone(),
-			DialTLSContext:  rt.dialTLSHTTP2,
-			TLSClientConfig: utlsConfig,
-			ConnectionFlow:  rt.connectionFlow,
-			HeaderPriority:  rt.headerPriority,
-			IdleConnTimeout: http2IdleTimeout,
+			Behavior:          rt.behavior.Clone(),
+			DialTLSContext:    rt.dialTLSHTTP2,
+			TLSClientConfig:   utlsConfig,
+			ConnectionFlow:    rt.connectionFlow,
+			ConnectionFlowSet: rt.connectionFlowSet,
+			HeaderPriority:    rt.headerPriority,
+			IdleConnTimeout:   http2IdleTimeout,
 
 			HeaderRepresentation:       rt.headerRepresentation,
 			MaxEncoderHeaderTableSize:  rt.maxEncoderTableSize,
@@ -1056,7 +1058,7 @@ func (rt *roundTripper) buildHttp1Transport() *http.Transport {
 
 	idleConnectionTimeout, _ := rt.idleTimeouts()
 
-	t := &http.Transport{DialContext: rt.dial, DialTLSContext: rt.dialTLS, TLSClientConfig: utlsConfig, ConnectionFlow: rt.connectionFlow, IdleConnTimeout: idleConnectionTimeout,
+	t := &http.Transport{DialContext: rt.dial, DialTLSContext: rt.dialTLS, TLSClientConfig: utlsConfig, ConnectionFlow: rt.connectionFlow, ConnectionFlowSet: rt.connectionFlowSet, IdleConnTimeout: idleConnectionTimeout,
 		MaxMergedHeadAndBody: rt.maxMergedHeadAndBody, UnusedIdle: rt.wasUnusedIdle}
 
 	if rt.transportOptions != nil {
@@ -1199,6 +1201,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		disableHttp3:                disableHttp3,
 		withRandomTlsExtensionOrder: withRandomTlsExtensionOrder,
 		connectionFlow:              clientProfile.GetConnectionFlow(),
+		connectionFlowSet:           clientProfile.GetConnectionFlowSet(),
 		clientHelloId:               clientProfile.GetClientHelloId(),
 		cachedTransports:            make(map[string]http.RoundTripper),
 		cachedConnections:           make(map[string]net.Conn),
