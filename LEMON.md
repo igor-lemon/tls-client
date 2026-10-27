@@ -347,3 +347,7 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   `TestAControlStreamsSettingsAreHeldToWhatALPSGaveAsChromes` failed 7 to 12
   runs of 40 under `-race`, none of 40 since. Test
   `TestAQUICConnectionThatEndsAsItIsMadeBreaksQUIC`; 5 mutants, all killed.
+
+- A6 coordinated pins retain the restored QUIC group checks, nonblocking large
+  HTTP3 setup and HTTP2 zero-window/final-stream/terminal-reader fixes.
+  Runtime adapter code and browser values are unchanged in this pins-only slice.
