@@ -5,8 +5,8 @@ go 1.24.1
 require (
 	github.com/bdandy/go-socks4 v1.2.3
 	github.com/google/uuid v1.6.0
-	github.com/igor-lemon/fhttp v0.6.10-0.20261026204301-7c44dba01c5a
-	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261026204640-16c5d9224207
+	github.com/igor-lemon/fhttp v0.6.10-0.20261027192653-f1db9eb3086c
+	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261027192656-437f71aea01d
 	github.com/igor-lemon/websocket v1.5.6-barnius.0.20261026204638-961b3d7db465
 	github.com/stretchr/testify v1.11.1
 	github.com/tam7t/hpkp v0.0.0-20160821193359-2b70b4024ed5
@@ -18,7 +18,7 @@ require (
 	github.com/bdandy/go-errors v1.2.2 // indirect
 	github.com/cloudflare/circl v1.6.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/igor-lemon/utls v1.7.8-barnius.0.20261026164924-161481babd43
+	github.com/igor-lemon/utls v1.7.8-barnius.0.20261027190147-856ef601ebd9
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
