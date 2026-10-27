@@ -11,10 +11,10 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/igor-lemon/fhttp v0.6.10-0.20261027200449-86ce408c88ff h1:sFGbCJqP4BQB7pVACWHgkR2wnDM02tQX8QP2WHHnQ7c=
-github.com/igor-lemon/fhttp v0.6.10-0.20261027200449-86ce408c88ff/go.mod h1:OhEISWmTJyk462YQ834+Beq6lw2m+5pEAeCf/qxYktI=
-github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261027200456-2ef070108faf h1:S67deIyBp/6Rb9GlmaQZcXMitRyAONacObkQarVadZk=
-github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261027200456-2ef070108faf/go.mod h1:TtKOgwGKklFFsjgEM0fig0P/kHwJF9HhOlUIECYxw7U=
+github.com/igor-lemon/fhttp v0.6.10-0.20261027200732-6ccf73f64cb3 h1:3sIaiogGZ1vjfmKkg3ViZ8yDzdTVGxTfIvCGPZdOv/c=
+github.com/igor-lemon/fhttp v0.6.10-0.20261027200732-6ccf73f64cb3/go.mod h1:OhEISWmTJyk462YQ834+Beq6lw2m+5pEAeCf/qxYktI=
+github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261027200806-4837491ccf90 h1:s6pIjd1N2BYJ7CVtI06jk9PjfpDkARWs/G7vr9+kLyk=
+github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261027200806-4837491ccf90/go.mod h1:qmSWdhc0oIKiCZp8+JBqcp6g18MQVWcm563nlOWVRlw=
 github.com/igor-lemon/utls v1.7.8-barnius.0.20261027190147-856ef601ebd9 h1:Di1dzbPG7h08a8QphEORBnsGAm/gi6D6DLbA6Vk/b5E=
 github.com/igor-lemon/utls v1.7.8-barnius.0.20261027190147-856ef601ebd9/go.mod h1:2XKENhNpqHSvQA4rB7ccoJI8y/fTD98P+Nl82juLl6U=
 github.com/igor-lemon/websocket v1.5.6-barnius.0.20261026204638-961b3d7db465 h1:ftH9hfgmH7LsZgOP8jgk8H4M4ombvtFeXCbHqqbUZMY=
