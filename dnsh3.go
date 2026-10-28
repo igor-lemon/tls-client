@@ -3,6 +3,7 @@ package tls_client
 import (
 	"context"
 	"errors"
+	"maps"
 	"net"
 	"net/netip"
 	"slices"
@@ -254,9 +255,10 @@ func (d *dnsH3) attempt(addr string, job quicJob) (*quicAttempt, bool) {
 
 // preconnect makes a's QUIC connection, apart from any request: it goes on
 // whatever becomes of the request it was made for, ended by QUIC's own
-// handshake timeouts, and is the session's from then on.
-func (d *dnsH3) preconnect(t3 *http3.Transport, ctx context.Context, addr string, a *quicAttempt) error {
-	err := t3.Preconnect(context.WithValue(context.WithoutCancel(ctx), quicAttemptKey{}, a), addr)
+// handshake timeouts or by CloseIdleConnections, and is the session's from
+// then on.
+func (d *dnsH3) preconnect(rt *roundTripper, t3 *http3.Transport, ctx context.Context, addr string, a *quicAttempt) error {
+	err := d.join(rt, t3, ctx, addr, a)
 	d.mu.Lock()
 	if d.attempts[addr] == a {
 		delete(d.attempts, addr)
@@ -266,6 +268,14 @@ func (d *dnsH3) preconnect(t3 *http3.Transport, ctx context.Context, addr string
 		d.State.workedFor(a.server)
 	}
 	return err
+}
+
+// join waits for a's QUIC connection, made for addr apart from any request:
+// one it makes, or one being made it joins.
+func (d *dnsH3) join(rt *roundTripper, t3 *http3.Transport, ctx context.Context, addr string, a *quicAttempt) error {
+	ctx, done := rt.apart.begin(context.WithoutCancel(ctx))
+	defer done()
+	return t3.Preconnect(context.WithValue(ctx, quicAttemptKey{}, a), addr)
 }
 
 // roundTrip sends req to addr (send), and keeps what its answer says of
@@ -356,7 +366,7 @@ func (d *dnsH3) send(rt *roundTripper, req *http.Request, addr string) (*http.Re
 				return
 			}
 			a, _ := d.attempt(addr, quicJob{server: s, origin: s, endpoint: ep})
-			quicDone <- d.preconnect(t3, ctx, addr, a)
+			quicDone <- d.preconnect(rt, t3, ctx, addr, a)
 		}()
 		res, err := rt.tcpRoundTrip(req, addr)
 		go d.settled(s, quicDone, err == nil, rt)
@@ -390,7 +400,7 @@ func (d *dnsH3) altRoundTrip(rt *roundTripper, t3 *http3.Transport, req *http.Re
 		quicDone := make(chan error, 1)
 		go func() {
 			a, _ := d.attempt(addr, job)
-			quicDone <- d.preconnect(t3, req.Context(), addr, a)
+			quicDone <- d.preconnect(rt, t3, req.Context(), addr, a)
 		}()
 		res, err := rt.tcpRoundTrip(req, addr)
 		go d.settled(job.server, quicDone, err == nil, rt)
@@ -418,12 +428,10 @@ func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, a
 	a, made := d.attempt(addr, job)
 	quicDone := make(chan error, 1)
 	if made {
-		go func() { quicDone <- d.preconnect(t3, req.Context(), addr, a) }()
+		go func() { quicDone <- d.preconnect(rt, t3, req.Context(), addr, a) }()
 	} else {
 		// One being made is joined: its result is the request's too.
-		go func() {
-			quicDone <- t3.Preconnect(context.WithValue(context.WithoutCancel(req.Context()), quicAttemptKey{}, a), addr)
-		}()
+		go func() { quicDone <- d.join(rt, t3, req.Context(), addr, a) }()
 	}
 	tcpDone := make(chan error, 1)
 	tcpStarted := false
@@ -439,9 +447,12 @@ func (d *dnsH3) race(rt *roundTripper, t3 *http3.Transport, req *http.Request, a
 			go func() {
 				// Its connection is made whoever takes the request, as a
 				// connect job goes on for the pool once its request went
-				// elsewhere; within the request's deadline.
-				ctx, cancel := apart(req.Context())
+				// elsewhere; within the request's deadline, and until
+				// CloseIdleConnections.
+				detached, cancel := apart(req.Context())
 				defer cancel()
+				ctx, done := rt.apart.begin(detached)
+				defer done()
 				tcpDone <- rt.connectTCP(req.WithContext(ctx), addr)
 			}()
 		}
@@ -581,6 +592,55 @@ func apart(ctx context.Context) (context.Context, context.CancelFunc) {
 		return context.WithDeadline(detached, deadline)
 	}
 	return context.WithCancel(detached)
+}
+
+// apartWork is what requests started that goes on after them, which
+// CloseIdleConnections ends and waits for, as it closes the connections made
+// before it: none is left to make one after it returns.
+type apartWork struct {
+	mu    sync.Mutex
+	ended context.Context
+	end   context.CancelFunc
+	going map[chan struct{}]bool
+}
+
+// begin is detached's context for work that goes on after its request, ended
+// too when CloseIdleConnections ends what is going; done says it is over.
+func (w *apartWork) begin(detached context.Context) (ctx context.Context, done func()) {
+	w.mu.Lock()
+	if w.ended == nil {
+		w.ended, w.end = context.WithCancel(context.Background())
+		w.going = map[chan struct{}]bool{}
+	}
+	ended := w.ended
+	over := make(chan struct{})
+	w.going[over] = true
+	w.mu.Unlock()
+	ctx, cancel := context.WithCancel(detached)
+	stop := context.AfterFunc(ended, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+		w.mu.Lock()
+		delete(w.going, over)
+		w.mu.Unlock()
+		close(over)
+	}
+}
+
+// endAll ends what is going and waits for it to be over; what begins after
+// it goes on until the next.
+func (w *apartWork) endAll() {
+	w.mu.Lock()
+	end, going := w.end, slices.Collect(maps.Keys(w.going))
+	w.ended, w.end, w.going = nil, nil, nil
+	w.mu.Unlock()
+	if end != nil {
+		end()
+	}
+	for _, over := range going {
+		<-over
+	}
 }
 
 // hasTCPConn says whether addr has a TCP connection, made or being made, as

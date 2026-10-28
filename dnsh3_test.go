@@ -1439,3 +1439,100 @@ func TestARequestTheQUICConnectionUpRefusedUnprocessedGoesOverTCPWithItsBody(t *
 		}
 	}
 }
+
+// What a race goes on making apart from its request, the TCP connection that
+// lost to QUIC or the QUIC one that lost to TCP, is ended by
+// CloseIdleConnections, which waits for it: none is left open once it
+// returns, as none is of the connections made before it.
+func TestCloseIdleConnectionsEndsWhatARaceMakesApart(t *testing.T) {
+	t.Run("TCP", func(t *testing.T) {
+		o := newH3Origin(t, originSays{tcpLag: 300 * time.Millisecond})
+		c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, NewQUICState())
+		if got := came(t, c, "https://"+o.addr+"/"); got != "HTTP/3.0" {
+			t.Fatalf("came over %q", got)
+		}
+		if !waitFor(time.Second, func() bool { return o.tcpConns.Load() == 1 }) {
+			t.Fatal("no TCP connection raced QUIC")
+		}
+		c.CloseIdleConnections()
+		// Past the lag, when the handshake made apart would have been done.
+		time.Sleep(500 * time.Millisecond)
+		if !waitFor(2*time.Second, func() bool { return o.tcpClosed.Load() == o.tcpConns.Load() }) {
+			t.Errorf("%d of %d TCP connections open after CloseIdleConnections", o.tcpConns.Load()-o.tcpClosed.Load(), o.tcpConns.Load())
+		}
+		// What the next request starts goes on as before: its QUIC
+		// connection is made, and takes it.
+		if got := came(t, c, "https://"+o.addr+"/again"); got != "HTTP/3.0" {
+			t.Errorf("the request after CloseIdleConnections came over %q", got)
+		}
+	})
+	t.Run("QUIC", func(t *testing.T) {
+		o := newH3Origin(t, originSays{quicLag: 300 * time.Millisecond})
+		c := h3Client(t, dnsH3Policy(t, nil), &recordSays{h3: true}, NewQUICState())
+		if got := came(t, c, "https://"+o.addr+"/"); got != "HTTP/2.0" {
+			t.Fatalf("came over %q", got)
+		}
+		c.CloseIdleConnections()
+		// Past the lag, when the handshake made apart would have been done.
+		time.Sleep(900 * time.Millisecond)
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		// The server takes a connection at its first packet; one the client
+		// let go of before its handshake was done is never made, and one
+		// made is closed.
+		for i, conn := range o.quic {
+			select {
+			case <-conn.HandshakeComplete():
+				if conn.Context().Err() == nil {
+					t.Errorf("QUIC connection %d made and open after CloseIdleConnections", i)
+				}
+			default:
+			}
+		}
+	})
+}
+
+// closedConn is a connection that says when it is closed.
+type closedConn struct {
+	net.Conn
+	closed atomic.Bool
+}
+
+func (c *closedConn) Close() error { c.closed.Store(true); return nil }
+
+// CloseIdleConnections ends what requests started apart and waits for it
+// before it closes what is idle: a connection such work keeps after it was
+// ended, its handshake done just then, is closed with the rest, not left.
+// What begins after it goes on until the next.
+func TestCloseIdleConnectionsWaitsForWhatItEnds(t *testing.T) {
+	rt := &roundTripper{cachedConnections: map[string]net.Conn{}, stashedAt: map[string]time.Time{},
+		unusedStash: map[string]bool{}, changedConnections: map[string]*tls.UConn{}, cachedTransports: map[string]http.RoundTripper{}}
+	kept := &closedConn{}
+	ctx, done := rt.apart.begin(context.Background())
+	ended := make(chan bool, 1)
+	go func() {
+		defer done()
+		select {
+		case <-ctx.Done():
+			ended <- true
+		case <-time.After(2 * time.Second):
+			ended <- false
+		}
+		time.Sleep(50 * time.Millisecond)
+		rt.Lock()
+		rt.cachedConnections["a.test:443"] = kept
+		rt.Unlock()
+	}()
+	rt.CloseIdleConnections()
+	if !<-ended {
+		t.Error("CloseIdleConnections did not end what went on apart")
+	}
+	if !kept.closed.Load() {
+		t.Error("a connection kept by work CloseIdleConnections ended is left open")
+	}
+	ctx, done = rt.apart.begin(context.Background())
+	defer done()
+	if ctx.Err() != nil {
+		t.Error("work begun after CloseIdleConnections is ended at once")
+	}
+}
