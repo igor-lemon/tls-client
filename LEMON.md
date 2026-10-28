@@ -360,3 +360,22 @@ mark zero explicitly; raw legacy catalogue defaults remain unchanged. Value-copy
 ownership is tested in profiles/connection_flow_test.go; the owner's raw peer
 checks actual zero/one/maximum increments. Dependency pins include fhttp e44d38f
 and QUIC898d2ae3.
+
+## What a race makes apart ends with CloseIdleConnections (review A5, 2026-10-28)
+
+A race of a name's HTTPS record goes on making the connection that lost after
+its request is answered: the TCP one QUIC beat, within the request's deadline,
+and the QUIC one TCP beat, ended by QUIC's own handshake timeouts. Neither was
+tracked: one that `CloseIdleConnections` (tls-forge's `Close`, and an evicted
+site's close) ran under came up after it returned, and was kept, the TCP one
+waiting unused and the QUIC one in the HTTP/3 transport's pool, past the
+client's end. `apartWork` (`dnsh3.go`) is that work: `begin` gives each its
+context, which `endAll` ends, and `CloseIdleConnections` ends it and waits for
+it before it closes what is idle, so that a connection one kept just as it was
+ended is closed with the rest. What begins after goes on until the next.
+Tests `TestCloseIdleConnectionsEndsWhatARaceMakesApart` (TCP and QUIC, and the
+request after it over QUIC) and `TestCloseIdleConnectionsWaitsForWhatItEnds`
+(work that keeps a connection after it was ended); 8 mutants, 7 killed, and
+one no test can see (`done` leaving its `AfterFunc` registered: a closure
+held for each attempt until the next `CloseIdleConnections`, for good without
+one, which `stop` is there to spare).

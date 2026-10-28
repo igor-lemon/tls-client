@@ -26,6 +26,10 @@ const defaultIdleConnectionTimeout = 90 * time.Second
 const CHROME_MAX_FIELD_SECTION_SIZE = 262144
 
 type roundTripper struct {
+	// apart is what a request starts that goes on after it: the connection
+	// of a race that lost, made for the session (dnsh3.go).
+	apart apartWork
+
 	chromeBehavior     bool
 	behavior           behavior.Policy
 	changedConnections map[string]*tls.UConn
@@ -264,6 +268,9 @@ func (rt *roundTripper) CloseIdleConnections() {
 			d.CloseIdleProxyConnections()
 		}
 	}()
+	// What requests started that goes on after them is ended, and waited
+	// for, first: what it made is closed below with the rest.
+	rt.apart.endAll()
 	rt.dnsH3.closeIdle()
 	rt.Lock()
 	for key, conn := range rt.changedConnections {
