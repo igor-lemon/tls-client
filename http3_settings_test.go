@@ -2,6 +2,8 @@ package tls_client
 
 import (
 	"encoding/json"
+	"fmt"
+	"slices"
 	"sync"
 	"testing"
 
@@ -66,5 +68,30 @@ func TestHTTP3SettingsFactoryDisabledAndMaximumPolicy(t *testing.T) {
 				t.Fatal("upper boundary lost")
 			}
 		}
+	}
+}
+
+func TestHTTP3SettingsGREASEPlacementIsSelectedByData(t *testing.T) {
+	for _, tc := range []struct {
+		placement   string
+		order, want []uint64
+	}{
+		{"last", []uint64{1, 6, 7, 51}, []uint64{1, 6, 7, 51, 33}},
+		{"before-greater-id", []uint64{1, 6, 7, 51}, []uint64{1, 6, 7, 33, 51}},
+		{"before-greater-id", []uint64{51, 7, 1, 6}, []uint64{33, 51, 7, 1, 6}},
+	} {
+		t.Run(tc.placement+fmt.Sprint(tc.order), func(t *testing.T) {
+			pol := behavior.Legacy()
+			pol["h3.grease_setting_n_min"], pol["h3.grease_setting_n_max"] = json.RawMessage("0"), json.RawMessage("0")
+			pol["h3.grease_setting_placement"], _ = json.Marshal(tc.placement)
+			built, err := buildHTTP3Transport(&http3Config{behavior: pol, http3Settings: map[uint64]uint64{1: 65536, 6: 262144, 7: 100, 51: 1}, http3SettingsOrder: tc.order})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, order := built.(*http3.Transport).SettingsForConnection()
+			if !slices.Equal(order, tc.want) {
+				t.Fatal(order, "want", tc.want)
+			}
+		})
 	}
 }
