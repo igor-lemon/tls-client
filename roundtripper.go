@@ -399,7 +399,18 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 			id := generateGREASESettingIDPolicy(policy)
 			drawn[id] = generateGREASESettingValuePolicy(policy)
 			if len(ordered) > 0 {
-				ordered = append(ordered, id)
+				at := len(ordered)
+				if policy.Text("h3.grease_setting_placement") == "before-greater-id" {
+					for i, existing := range ordered {
+						if existing > id {
+							at = i
+							break
+						}
+					}
+				}
+				ordered = append(ordered, 0)
+				copy(ordered[at+1:], ordered[at:])
+				ordered[at] = id
 			}
 		}
 		return drawn, ordered

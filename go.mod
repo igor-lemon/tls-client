@@ -14,11 +14,11 @@ require (
 )
 
 require (
-	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/andybalholm/brotli v1.2.3 // indirect
 	github.com/bdandy/go-errors v1.2.2 // indirect
 	github.com/cloudflare/circl v1.6.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/igor-lemon/utls v1.7.8-barnius.0.20261027190147-856ef601ebd9
+	github.com/igor-lemon/utls v1.7.8-barnius.0.20261029204650-6ed0c7ad1d71
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
