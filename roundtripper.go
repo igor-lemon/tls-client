@@ -378,43 +378,32 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 		t3.Dial = newSOCKS5QUICDialer(cfg.proxyURL)
 	}
 
-	http3Settings := cfg.http3Settings
-
-	if http3Settings != nil {
-		settingsCopy := make(map[uint64]uint64, len(http3Settings))
-		for k, v := range http3Settings {
-			settingsCopy[k] = v
-		}
-		http3Settings = settingsCopy
+	// Policy selects the generation rule; the HTTP/3 connection owns its draw.
+	// Snapshot input data so later callers cannot mutate an established factory.
+	settings := make(map[uint64]uint64, len(cfg.http3Settings))
+	for id, value := range cfg.http3Settings {
+		settings[id] = value
 	}
-
-	// Add random GREASE setting only for browsers that send it (Chrome)
-	// Firefox sends GREASE frames but not random GREASE settings
-	// Use priority parameter as identification: Chrome has it, Firefox doesn't
-	if pol.Flag("h3.grease_settings") || (pol == nil && cfg.http3PriorityParam > 0) {
-		greaseID := generateGREASESettingIDPolicy(pol)
-		greaseValue := generateGREASESettingValuePolicy(pol)
-
-		if http3Settings == nil {
-			http3Settings = make(map[uint64]uint64)
+	order := append([]uint64(nil), cfg.http3SettingsOrder...)
+	policy := pol.Clone()
+	grease := policy.Flag("h3.grease_settings") || (pol == nil && cfg.http3PriorityParam > 0)
+	t3.AdditionalSettings = settings
+	t3.AdditionalSettingsOrder = order
+	t3.SettingsForConnection = func() (map[uint64]uint64, []uint64) {
+		drawn := make(map[uint64]uint64, len(settings)+1)
+		for id, value := range settings {
+			drawn[id] = value
 		}
-		http3Settings[greaseID] = greaseValue
-
-		// Set the order if available, and append GREASE at the end
-		if len(cfg.http3SettingsOrder) > 0 {
-			orderWithGrease := make([]uint64, len(cfg.http3SettingsOrder)+1)
-			copy(orderWithGrease, cfg.http3SettingsOrder)
-			orderWithGrease[len(cfg.http3SettingsOrder)] = greaseID
-			t3.AdditionalSettingsOrder = orderWithGrease
+		ordered := append([]uint64(nil), order...)
+		if grease {
+			id := generateGREASESettingIDPolicy(policy)
+			drawn[id] = generateGREASESettingValuePolicy(policy)
+			if len(ordered) > 0 {
+				ordered = append(ordered, id)
+			}
 		}
-	} else {
-		// Just use the settings order as-is without random GREASE
-		if len(cfg.http3SettingsOrder) > 0 {
-			t3.AdditionalSettingsOrder = cfg.http3SettingsOrder
-		}
+		return drawn, ordered
 	}
-
-	t3.AdditionalSettings = http3Settings
 
 	if len(cfg.http3PseudoHeaderOrder) > 0 {
 		t3.PseudoHeaderOrder = cfg.http3PseudoHeaderOrder
