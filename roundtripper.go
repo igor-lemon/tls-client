@@ -23,7 +23,6 @@ import (
 )
 
 const defaultIdleConnectionTimeout = 90 * time.Second
-const CHROME_MAX_FIELD_SECTION_SIZE = 262144
 
 type roundTripper struct {
 	// apart is what a request starts that goes on after it: the connection
@@ -429,31 +428,21 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 	if cfg.transportOptions != nil {
 		t3.DisableCompression = cfg.transportOptions.DisableCompression
 
-		maxResponseHeaderBytes, convErr := Int64ToInt(cfg.transportOptions.MaxResponseHeaderBytes)
-		if convErr != nil {
-			return nil, fmt.Errorf("error converting MaxResponseHeaderBytes to int: %w", convErr)
+	}
+	if cfg.http3Settings != nil {
+		// An explicit profile owns SETTINGS. ID 6, when present, also controls
+		// receiving in http3; when absent, no limit is advertised. H1's limit
+		// and the priority field do not select H3 behavior.
+		t3.MaxResponseHeaderBytes = -1
+	} else if cfg.transportOptions != nil {
+		max, err := Int64ToInt(cfg.transportOptions.MaxResponseHeaderBytes)
+		if err != nil {
+			return nil, fmt.Errorf("error converting MaxResponseHeaderBytes to int: %w", err)
 		}
-
-		if maxResponseHeaderBytes > 0 {
-			t3.MaxResponseHeaderBytes = maxResponseHeaderBytes
-		} else if maxResponseHeaderBytes < 0 {
-			// -1 means don't send SETTINGS_MAX_FIELD_SECTION_SIZE (Firefox behavior)
-			t3.MaxResponseHeaderBytes = -1
-		} else {
-			t3.MaxResponseHeaderBytes = profileDefaultMaxResponseHeaderBytes(cfg)
-		}
-	} else {
-		t3.MaxResponseHeaderBytes = profileDefaultMaxResponseHeaderBytes(cfg)
+		t3.MaxResponseHeaderBytes = max
 	}
 
 	return t3, nil
-}
-
-func profileDefaultMaxResponseHeaderBytes(cfg *http3Config) int {
-	if cfg.http3PriorityParam > 0 {
-		return CHROME_MAX_FIELD_SECTION_SIZE
-	}
-	return -1
 }
 
 func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {

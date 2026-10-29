@@ -379,3 +379,10 @@ request after it over QUIC) and `TestCloseIdleConnectionsWaitsForWhatItEnds`
 one no test can see (`done` leaving its `AfterFunc` registered: a closure
 held for each attempt until the next `CloseIdleConnections`, for good without
 one, which `stop` is there to spare).
+
+## HTTP/3 field-section size from profile settings (2026-10-29)
+
+An explicit HTTP/3 settings map owns its field-section limit, including zero or
+omission. HTTP/1's MaxResponseHeaderBytes and HTTP/3 priority no longer select
+an unrelated H3 limit. Raw transports without a settings map retain their
+explicit transport option or the generic http3 default.
