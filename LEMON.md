@@ -451,3 +451,12 @@ its cache and lets the next caller request recover; it never gains a fallback
 replay for a failed POST. The formerly contradictory fixtures now check these
 boundaries explicitly, with actual handshake/origin counts and complete bodies.
 Twenty race repetitions pass. Existing arbitrary-error/no-replay controls remain.
+
+A11 found an additional production body-lifetime defect: failed RoundTrip had
+closed a POST body before a plain ALPN handoff reused it. The owned peer observed
+an interrupted POST, including with GetBody present. The handoff now clones the
+request and uses a fresh GetBody result; without one it returns the original
+ALPN error before emitting that POST. Caller Request.Body is not replaced.
+Twenty race repetitions pass for rewindable/unrewindable POST, recovery, exact
+origin bodies, and the separate plain/racing contracts. Existing retry count and
+all browser policy values remain unchanged in this pending engine1 release.

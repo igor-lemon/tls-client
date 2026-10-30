@@ -166,3 +166,8 @@ standard jar. `GetAllCookies` returns independently owned metadata grouped by
 exact canonical source host. `WithSkipExisting` preserves an active cookie with
 the same name/domain/path; explicit deletion still applies. These raw adapter
 controls do not establish browser SameSite or public-suffix-policy equivalence.
+
+On a plain TCP ALPN handoff before HTTP dispatch, a request with a body requires
+`GetBody` to continue on the replacement transport. A non-rewindable body returns
+the ALPN error to its caller. Racing returns dispatch errors without a fallback
+replay; the next caller request can use the rebuilt transport.

@@ -3,6 +3,7 @@ package tls_client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"net"
 	"net/netip"
@@ -812,6 +813,21 @@ func (rt *roundTripper) tcpRoundTrip(req *http.Request, addr string) (*http.Resp
 		resp, err := rt.roundTrip(req, addr)
 		if !errors.Is(err, errProtocolChanged) || changes == protocolChanges {
 			return resp, err
+		}
+		// A failed RoundTrip owns and closes its request body, even when
+		// ALPN changed before HTTP dispatch. Never send that closed object on
+		// the replacement transport or replay an unrewindable POST.
+		if req.Body != nil && req.Body != http.NoBody {
+			if req.GetBody == nil {
+				return resp, err
+			}
+			body, bodyErr := req.GetBody()
+			if bodyErr != nil {
+				return nil, fmt.Errorf("tls-client: recreating request body after ALPN handoff: %w", bodyErr)
+			}
+			next := req.Clone(req.Context())
+			next.Body = body
+			req = next
 		}
 	}
 }
