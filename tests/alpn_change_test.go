@@ -8,8 +8,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
+	"github.com/stretchr/testify/require"
+	"io"
 	"math/big"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -35,14 +38,13 @@ import (
 //
 // The address stayed broken until the whole client was replaced.
 //
-// The connection on which the change is discovered cannot be rescued, since
-// that dial belongs to the transport speaking the wrong protocol. So what this
-// checks is that the client RECOVERS: the request that runs into the change
-// fails with a message saying what happened, and the one after it succeeds over
-// the protocol the server is now offering. Without the fix the third request
-// fails exactly like the second, and so does every one after it.
+// The plain adapter owns safe pre-dispatch ALPN handoff. The changed
+// connection is reused with its rebuilt transport; no HTTP request has yet
+// reached the origin. The racing adapter has a separate explicit error boundary
+// tested below and must never replay arbitrary dispatched requests.
 func TestClient_ProtocolChangeBetweenConnections(t *testing.T) {
 	var handshakes int64
+	var origins atomic.Int64
 
 	cert := selfSignedCert(t)
 	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
@@ -62,7 +64,14 @@ func TestClient_ProtocolChangeBetweenConnections(t *testing.T) {
 	}
 	defer listener.Close()
 
-	go serveChangingProtocol(listener)
+	go serveChangingProtocol(listener, func(r *http.Request) {
+		origins.Add(1)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		if r.Method == http.MethodPost {
+			require.Equal(t, "handoff body", string(body))
+		}
+	})
 
 	client, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(),
 		tls_client.WithClientProfile(profiles.Chrome_133),
@@ -73,6 +82,7 @@ func TestClient_ProtocolChangeBetweenConnections(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Cleanup(client.CloseIdleConnections)
 	endpoint := fmt.Sprintf("https://%s/", listener.Addr().String())
 
 	// The first request negotiates http/1.1 and caches an HTTP/1 transport.
@@ -89,19 +99,18 @@ func TestClient_ProtocolChangeBetweenConnections(t *testing.T) {
 	assert.Equal(t, 200, resp.StatusCode)
 	assert.Equal(t, "HTTP/1.1", resp.Proto)
 
-	// The server closed that connection, so the second request dials again and
-	// this time negotiates h2. The cached HTTP/1 transport cannot use it, so
-	// this request fails and the cache entry is dropped.
-	req2, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The second dial learns h2 before any HTTP dispatch. The plain adapter
+	// reuses that handshake and sends the complete request exactly once.
+	req2, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader("handoff body"))
+	require.NoError(t, err)
 	resp2, err := client.Do(req2)
-	if err == nil {
-		resp2.Body.Close()
-		t.Fatal("expected the request that runs into the protocol change to fail")
-	}
-	assert.Contains(t, err.Error(), "does not speak")
+	require.NoError(t, err)
+	_, err = io.Copy(io.Discard, resp2.Body)
+	require.NoError(t, err)
+	resp2.Body.Close()
+	require.Equal(t, "HTTP/2.0", resp2.Proto)
+	require.EqualValues(t, 2, atomic.LoadInt64(&handshakes), "handoff must reuse its negotiated connection")
+	require.EqualValues(t, 2, origins.Load(), "one origin request for each caller request")
 
 	// The third request is the point of the fix. Without it this one, and every
 	// one after it, fails the same way as the second.
@@ -117,13 +126,17 @@ func TestClient_ProtocolChangeBetweenConnections(t *testing.T) {
 
 	assert.Equal(t, 200, resp3.StatusCode)
 	assert.Equal(t, "HTTP/2.0", resp3.Proto)
+	require.EqualValues(t, 3, origins.Load())
 }
 
 // serveChangingProtocol answers each connection with whichever protocol its
 // handshake settled on, and closes an HTTP/1 connection after one response so
 // the client has to dial again.
-func serveChangingProtocol(listener net.Listener) {
+func serveChangingProtocol(listener net.Listener, observe ...func(*http.Request)) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(observe) > 0 {
+			observe[0](r)
+		}
 		_, _ = fmt.Fprint(w, "ok")
 	})
 
@@ -242,6 +255,7 @@ func TestClient_NoALPNThenHTTP1KeepsTheCachedTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Cleanup(client.CloseIdleConnections)
 	endpoint := fmt.Sprintf("https://%s/", listener.Addr().String())
 
 	for i := 1; i <= 2; i++ {
@@ -297,6 +311,7 @@ func TestClient_ProtocolChangeUnderConcurrentLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Cleanup(client.CloseIdleConnections)
 	endpoint := fmt.Sprintf("https://%s/", listener.Addr().String())
 
 	// One request first, so an HTTP/1 transport is cached and every goroutine

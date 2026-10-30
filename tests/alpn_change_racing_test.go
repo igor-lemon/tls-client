@@ -3,6 +3,9 @@ package tests
 import (
 	"crypto/tls"
 	"fmt"
+	"github.com/stretchr/testify/require"
+	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -23,12 +26,12 @@ import (
 // again, reaches for the very same cached transport, and fails on the same
 // mismatch. The address stayed broken for the life of the client.
 //
-// Racing gives the client a free retry that the plain path does not have: the
-// failing leg makes the racer fall back to a full race, which rebuilds the
-// transport and answers the request. So here even the request that runs into
-// the change succeeds, over the protocol the server has moved to.
+// Once the racing adapter dispatches, an error is returned to its owner;
+// its caches are invalidated, and the next caller request establishes h2.
+// There is no fallback replay of an unsafe request after a dispatch error.
 func TestClient_ProtocolChangeWithRacingRecovers(t *testing.T) {
 	var handshakes int64
+	var origins atomic.Int64
 
 	cert := selfSignedCert(t)
 	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
@@ -48,7 +51,7 @@ func TestClient_ProtocolChangeWithRacingRecovers(t *testing.T) {
 	}
 	defer listener.Close()
 
-	go serveChangingProtocol(listener)
+	go serveChangingProtocol(listener, func(r *http.Request) { origins.Add(1); require.NotEqual(t, http.MethodPost, r.Method) })
 
 	client, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(),
 		tls_client.WithClientProfile(profiles.Chrome_133),
@@ -60,6 +63,7 @@ func TestClient_ProtocolChangeWithRacingRecovers(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Cleanup(client.CloseIdleConnections)
 	endpoint := fmt.Sprintf("https://%s/", listener.Addr().String())
 
 	// The HTTP/3 leg has nothing to talk to here, so the HTTP/2 leg wins every
@@ -77,11 +81,16 @@ func TestClient_ProtocolChangeWithRacingRecovers(t *testing.T) {
 	assert.Equal(t, 200, resp.StatusCode)
 	assert.Equal(t, "HTTP/1.1", resp.Proto)
 
-	// The server closed that connection and negotiates h2 from now on. Both
-	// requests below have to come back over HTTP/2: the first one because the
-	// racer falls back to a race that rebuilds the transport, the second one
-	// because the rebuilt transport is what the cache now holds.
-	for i := 2; i <= 3; i++ {
+	// The failed POST must not be replayed by racing. A subsequent caller
+	// request is allowed to use the freshly negotiated protocol.
+	req2, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader("do not replay"))
+	require.NoError(t, err)
+	failed, err := client.Do(req2)
+	require.ErrorContains(t, err, "does not speak")
+	require.Nil(t, failed)
+	require.EqualValues(t, 1, origins.Load())
+
+	for i := 3; i <= 3; i++ {
 		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -94,6 +103,9 @@ func TestClient_ProtocolChangeWithRacingRecovers(t *testing.T) {
 
 		assert.Equal(t, 200, resp.StatusCode)
 		assert.Equal(t, "HTTP/2.0", resp.Proto)
+		_, err = io.Copy(io.Discard, resp.Body)
+		require.NoError(t, err)
 		resp.Body.Close()
 	}
+	require.EqualValues(t, 2, origins.Load())
 }

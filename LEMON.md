@@ -442,3 +442,12 @@ POST reaches only the owned peer, which checks its method/body and answers 204.
 Trust-anchor profiles retain their exact wire-extension controls and now complete
 real verified TLS requests to that peer. Secure WebSocket uses the owned TLS
 server and requires exact echoed message equality. Twenty race repetitions pass.
+
+## A11 ALPN adapter ownership contract
+
+The plain adapter's existing pre-dispatch handoff rebuilds the transport and
+reuses the negotiated connection. Racing returns a dispatch error, invalidates
+its cache and lets the next caller request recover; it never gains a fallback
+replay for a failed POST. The formerly contradictory fixtures now check these
+boundaries explicitly, with actual handshake/origin counts and complete bodies.
+Twenty race repetitions pass. Existing arbitrary-error/no-replay controls remain.
