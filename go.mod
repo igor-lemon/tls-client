@@ -5,8 +5,8 @@ go 1.24.1
 require (
 	github.com/bdandy/go-socks4 v1.2.3
 	github.com/google/uuid v1.6.0
-	github.com/igor-lemon/fhttp v0.6.10-0.20261027200732-6ccf73f64cb3
-	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261029174437-f8b2a713bf83
+	github.com/igor-lemon/fhttp v0.6.10-0.20261030170200-24c1c55ecaf2
+	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261030181739-9a3076b42e8e
 	github.com/igor-lemon/websocket v1.5.6-barnius.0.20261026204638-961b3d7db465
 	github.com/stretchr/testify v1.11.1
 	github.com/tam7t/hpkp v0.0.0-20160821193359-2b70b4024ed5
@@ -18,11 +18,11 @@ require (
 	github.com/bdandy/go-errors v1.2.2 // indirect
 	github.com/cloudflare/circl v1.6.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/igor-lemon/utls v1.7.8-barnius.0.20261029205911-2c0489c13835
+	github.com/igor-lemon/utls v1.7.8-barnius.0.20261030155229-fc851fa265f6
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/quic-go/qpack v0.6.0 // indirect
+	github.com/quic-go/qpack v0.6.0
 	golang.org/x/crypto v0.46.0
 	golang.org/x/sys v0.39.0
 	golang.org/x/text v0.32.0 // indirect

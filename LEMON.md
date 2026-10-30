@@ -460,3 +460,9 @@ ALPN error before emitting that POST. Caller Request.Body is not replaced.
 Twenty race repetitions pass for rewindable/unrewindable POST, recovery, exact
 origin bodies, and the separate plain/racing contracts. Existing retry count and
 all browser policy values remain unchanged in this pending engine1 release.
+
+A11 standalone support pins now use the source-verified utls fc851fa, fhttp
+24c1c55 and QUIC9a3076b4 published on their tls-forge branches. The root adapter
+package passes under race on this module graph (35.853s); full standalone and
+production fork suites remain required before final acceptance. Old standalone
+module metadata and original failure transcripts remain in the private capsule.
