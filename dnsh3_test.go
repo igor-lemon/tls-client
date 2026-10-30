@@ -166,6 +166,9 @@ func newH3Origin(t *testing.T, says originSays) *h3Origin {
 		if alt := r.URL.Query().Get("alt"); alt != "" {
 			w.Header().Set("Alt-Svc", alt)
 		}
+		if status, err := strconv.Atoi(r.URL.Query().Get("status")); err == nil {
+			w.WriteHeader(status)
+		}
 		said := r.Proto
 		if r.TLS != nil && r.TLS.ECHAccepted {
 			said += " ech"
