@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"github.com/stretchr/testify/require"
 	"io"
 	"strings"
 	"testing"
@@ -11,8 +12,10 @@ import (
 )
 
 func TestHTTP3(t *testing.T) {
+	endpoint := newOwnedHTTP3Peer(t, 3)
 	options := []tls_client.HttpClientOption{
 		tls_client.WithClientProfile(profiles.Chrome_144),
+		tls_client.WithInsecureSkipVerify(),
 		tls_client.WithTimeoutSeconds(30),
 		tls_client.WithProtocolRacing(),
 	}
@@ -22,7 +25,8 @@ func TestHTTP3(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, "https://http3.is/", nil)
+	t.Cleanup(client.CloseIdleConnections)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,6 +38,8 @@ func TestHTTP3(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	defer resp.Body.Close()
+	require.Equal(t, "HTTP/3.0", resp.Proto)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -45,8 +51,10 @@ func TestHTTP3(t *testing.T) {
 }
 
 func TestDisableHTTP3(t *testing.T) {
+	endpoint := newOwnedHTTP2TracePeer(t)
 	options := []tls_client.HttpClientOption{
 		tls_client.WithClientProfile(profiles.Chrome_144),
+		tls_client.WithInsecureSkipVerify(),
 		tls_client.WithTimeoutSeconds(30),
 		tls_client.WithDisableHttp3(),
 	}
@@ -56,7 +64,8 @@ func TestDisableHTTP3(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, "https://http3.is/", nil)
+	t.Cleanup(client.CloseIdleConnections)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +77,8 @@ func TestDisableHTTP3(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	defer resp.Body.Close()
+	require.Equal(t, "HTTP/2.0", resp.Proto)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)

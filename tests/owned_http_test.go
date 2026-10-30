@@ -5,7 +5,10 @@ import (
 	"crypto/x509"
 	http "github.com/igor-lemon/fhttp"
 	"github.com/stretchr/testify/require"
+	"io"
 	"net"
+	stdhttp "net/http"
+	stdhttptest "net/http/httptest"
 	"testing"
 )
 
@@ -24,4 +27,20 @@ func newOwnedVerifiedTLSPeer(t *testing.T, handler http.Handler) (string, *x509.
 	go func() { defer close(done); _ = server.Serve(listener) }()
 	t.Cleanup(func() { server.Close(); listener.Close(); <-done })
 	return "https://" + listener.Addr().(*net.TCPAddr).String(), roots
+}
+
+// TLS/TCP negotiates real HTTP/2. The response reports the protocol actually
+// observed by this independent server, preserving the old trace obligation.
+func newOwnedHTTP2TracePeer(t *testing.T) string {
+	t.Helper()
+	server := stdhttptest.NewUnstartedServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.ProtoMajor != 2 {
+			t.Errorf("owned trace protocol=%s", r.Proto)
+		}
+		_, _ = io.WriteString(w, "http=http/2; HTTP/3 (h3-29 or h3-27) was not used to request this page")
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	return server.URL
 }

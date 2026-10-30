@@ -466,3 +466,31 @@ A11 standalone support pins now use the source-verified utls fc851fa, fhttp
 package passes under race on this module graph (35.853s); full standalone and
 production fork suites remain required before final acceptance. Old standalone
 module metadata and original failure transcripts remain in the private capsule.
+
+## A11 owned HTTP/3 wire and routing witnesses
+
+The H3 peer has no profile or expected-hash input. It accepts real QUIC,
+records ordered control bytes/SETTINGS and independently decodes static QPACK
+(the peer advertises zero dynamic capacity). Replies use only received fields.
+Chrome144's raw catalogue has no ID6 value; nil behavior retains generic
+priority-before-GREASE ordering. Chrome133 has no H3 map, so its raw transport
+retains the 10 MiB default and unspecified SETTINGS map order. The old external
+hash asserted different defaults. These are adapter contracts, not Chrome
+recaptures. Existing browser profile data has not changed. Explicit separate
+wire controls require ID6 omitted/zero/262144, with zero rejecting the response.
+
+Direct tests now preserve the unchanged catalogue ALPN input (actual H2), and
+also prove actual non-racer DNS-H3 routing with the complete technical JSON
+fixture copied from root engine1 chrome155 behavior. Combining that routing
+policy with catalogue hellos is deliberately not browser-equivalence evidence.
+The server independently reports actual H2/H3 instead of external page strings.
+
+Generated GREASE retains raw ID/value. The independent oracle checks JSON draw
+bounds, value range, exact insertion position against fixed SETTINGS order,
+frame draw/payload relationship, priority stream/value and QPACK pseudo order.
+It does not freeze a random placement or require unique draws. Wrong fixed
+values, placement, duplicates, absent draws and illegal ranges are rejected by
+negative controls. Raw control bytes remain available beside normalized labels.
+All H3/routing/body controls pass20race together (4.261s). The owned peer is a
+bounded first-request technical fixture, not a complete alternate H3 server or
+an independent browser implementation.

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"github.com/stretchr/testify/require"
 	"io"
 	"strings"
 	"testing"
@@ -11,8 +12,10 @@ import (
 )
 
 func TestHTTP3WithChromeOnCloudflare(t *testing.T) {
+	endpoint := newOwnedHTTP3Peer(t, 3)
 	options := []tls_client.HttpClientOption{
 		tls_client.WithClientProfile(profiles.Chrome_144),
+		tls_client.WithInsecureSkipVerify(),
 		tls_client.WithProtocolRacing(),
 	}
 
@@ -21,7 +24,8 @@ func TestHTTP3WithChromeOnCloudflare(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, "https://www.cloudflare.com/cdn-cgi/trace", nil)
+	t.Cleanup(client.CloseIdleConnections)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +37,8 @@ func TestHTTP3WithChromeOnCloudflare(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	defer resp.Body.Close()
+	require.Equal(t, "HTTP/3.0", resp.Proto)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -44,8 +50,10 @@ func TestHTTP3WithChromeOnCloudflare(t *testing.T) {
 }
 
 func TestHTTP2WithChromeOnCloudflare(t *testing.T) {
+	endpoint := newOwnedHTTP2TracePeer(t)
 	options := []tls_client.HttpClientOption{
 		tls_client.WithClientProfile(profiles.Chrome_144),
+		tls_client.WithInsecureSkipVerify(),
 		// tls_client.WithProtocolRacing(), // we explicitly disable racing and stick to the "old" behavior
 	}
 
@@ -54,7 +62,8 @@ func TestHTTP2WithChromeOnCloudflare(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, "https://www.cloudflare.com/cdn-cgi/trace", nil)
+	t.Cleanup(client.CloseIdleConnections)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +75,8 @@ func TestHTTP2WithChromeOnCloudflare(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	defer resp.Body.Close()
+	require.Equal(t, "HTTP/2.0", resp.Proto)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
