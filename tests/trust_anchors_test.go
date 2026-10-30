@@ -21,7 +21,6 @@ const trustAnchorsExtension = 0xca34
 
 // generate204Endpoint answers with 204 and an empty body. Google runs the TLS
 // trust anchor IDs draft, so it reads the extension instead of skipping it.
-const generate204Endpoint = "https://www.google.com/generate_204"
 
 // trustAnchorProfiles are the profiles that send the trust_anchors extension.
 // Add a row for a new browser version, together with its capture below.
@@ -275,11 +274,13 @@ func TestTrustAnchorsOnTheWire(t *testing.T) {
 // finds no ID it knows falls back to its normal certificate, so a list of
 // unknown IDs still answers with 204. The tests above cover the IDs.
 func TestTrustAnchorsAreAcceptedByAServer(t *testing.T) {
+	generate204Endpoint, roots := newOwnedVerifiedTLSPeer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	for _, tc := range trustAnchorProfiles {
 		t.Run(tc.name, func(t *testing.T) {
 			client, err := tls_client.NewHttpClient(nil,
 				tls_client.WithClientProfile(tc.profile),
 				tls_client.WithTimeoutSeconds(30),
+				tls_client.WithTransportOptions(&tls_client.TransportOptions{RootCAs: roots}),
 			)
 			if err != nil {
 				t.Fatal(err)

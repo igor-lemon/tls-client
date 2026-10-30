@@ -435,3 +435,10 @@ original hook ordering/error/panic/registration assertion remains; the peer
 additionally checks pre-hook headers and zero/one origin request counts. The
 request-failure fixture closes its own accepted socket instead of relying on DNS.
 Twenty race repetitions pass, including concurrent registration.
+
+A11 TLS service fixtures use a local certificate trusted by the client (normal
+certificate verification stays enabled). Firefox's formerly external registration
+POST reaches only the owned peer, which checks its method/body and answers 204.
+Trust-anchor profiles retain their exact wire-extension controls and now complete
+real verified TLS requests to that peer. Secure WebSocket uses the owned TLS
+server and requires exact echoed message equality. Twenty race repetitions pass.
