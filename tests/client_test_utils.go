@@ -11,6 +11,7 @@ type TlsApiResponse struct {
 	HTTPVersion string `json:"http_version"`
 	Method      string `json:"method"`
 	TLS         struct {
+		DidResume            bool     `json:"did_resume"`
 		TLSVersionRecord     string   `json:"tls_version_record"`
 		TLSVersionNegotiated string   `json:"tls_version_negotiated"`
 		Ja3                  string   `json:"ja3"`

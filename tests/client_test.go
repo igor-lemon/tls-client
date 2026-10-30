@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"testing"
-	"time"
 
 	"github.com/igor-lemon/tls-client/profiles"
 
@@ -14,116 +13,63 @@ import (
 )
 
 func TestClients(t *testing.T) {
-	t.Log("testing firefox 147")
-	firefox_147(t)
-	t.Log("testing chrome 146 with PSK")
-	chrome_146_PSK(t)
-	t.Log("testing chrome 152 with PSK")
-	chrome_152_PSK(t)
-	t.Log("testing chrome 150 with PSK")
-	chrome_150_PSK(t)
-	t.Log("testing safari ios 26.0")
-	safari_iOS_26_0(t)
-	t.Log("testing safari ios 18.5")
-	safari_iOS_18_5(t)
-	t.Log("testing chrome 144")
-	chrome_144(t)
-	t.Log("testing chrome 133")
-	chrome_133(t)
-	t.Log("testing chrome 131")
-	chrome_131(t)
-	t.Log("testing chrome 124")
-	chrome_124(t)
-	t.Log("testing chrome 120")
-	chrome_120(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 117")
-	chrome_117(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing firefox 117")
-	firefox_117(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 116 with psk")
-	chrome116WithPsk(t)
-	t.Log("testing chrome 112")
-	chrome112(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 111")
-	chrome111(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 110")
-	chrome110(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 109")
-	chrome109(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 108")
-	chrome108(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 107")
-	chrome107(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 105")
-	chrome105(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 104")
-	chrome104(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing chrome 103")
-	chrome103(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing safari 16")
-	safari_16_0(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing safari ios 16")
-	safari_iOS_16_0(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing safari ios 17")
-	safariIos17(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing safari ios 18")
-	safari_iOS_18_0(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing firefox 105")
-	firefox_105(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing firefox 106")
-	firefox_106(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing firefox 108")
-	firefox_108(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing firefox 110")
-	firefox_110(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing firefox 124")
-	firefox_132(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing opera 91")
-	opera_91(t)
+	for _, tc := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"firefox_147", firefox_147},
+		{"chrome_146_PSK", chrome_146_PSK},
+		{"chrome_152_PSK", chrome_152_PSK},
+		{"chrome_150_PSK", chrome_150_PSK},
+		{"safari_iOS_26_0", safari_iOS_26_0},
+		{"safari_iOS_18_5", safari_iOS_18_5},
+		{"chrome_144", chrome_144},
+		{"chrome_133", chrome_133},
+		{"chrome_131", chrome_131},
+		{"chrome_124", chrome_124},
+		{"chrome_120", chrome_120},
+		{"chrome_117", chrome_117},
+		{"firefox_117", firefox_117},
+		{"chrome116WithPsk", chrome116WithPsk},
+		{"chrome112", chrome112},
+		{"chrome111", chrome111},
+		{"chrome110", chrome110},
+		{"chrome109", chrome109},
+		{"chrome108", chrome108},
+		{"chrome107", chrome107},
+		{"chrome105", chrome105},
+		{"chrome104", chrome104},
+		{"chrome103", chrome103},
+		{"safari_16_0", safari_16_0},
+		{"safari_iOS_16_0", safari_iOS_16_0},
+		{"safariIos17", safariIos17},
+		{"safari_iOS_18_0", safari_iOS_18_0},
+		{"firefox_105", firefox_105},
+		{"firefox_106", firefox_106},
+		{"firefox_108", firefox_108},
+		{"firefox_110", firefox_110},
+		{"firefox_132", firefox_132},
+		{"opera_91", opera_91},
+	} {
+		t.Run(tc.name, tc.run)
+	}
 }
 
 func TestCustomClients(t *testing.T) {
-	t.Log("testing okhttp4 android 13")
-	okhttp4Android13(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing okhttp4 android 12")
-	okhttp4Android12(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing okhttp4 android 11")
-	okhttp4Android11(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing okhttp4 android 10")
-	okhttp4Android10(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing okhttp4 android 9")
-	okhttp4Android9(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing okhttp4 android 8")
-	okhttp4Android8(t)
-	time.Sleep(2 * time.Second)
-	t.Log("testing okhttp4 android 7")
-	okhttp4Android7(t)
+	for _, tc := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"okhttp4Android13", okhttp4Android13},
+		{"okhttp4Android12", okhttp4Android12},
+		{"okhttp4Android11", okhttp4Android11},
+		{"okhttp4Android10", okhttp4Android10},
+		{"okhttp4Android9", okhttp4Android9},
+		{"okhttp4Android8", okhttp4Android8},
+		{"okhttp4Android7", okhttp4Android7},
+	} {
+		t.Run(tc.name, tc.run)
+	}
 }
 
 var defaultHeader = http.Header{
@@ -149,8 +95,10 @@ var defaultOkHttp4Header = http.Header{
 }
 
 func chrome116WithPsk(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_116_PSK),
 		tls_client.WithTimeoutSeconds(120),
 	}
@@ -159,6 +107,7 @@ func chrome116WithPsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -172,7 +121,9 @@ func chrome116WithPsk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compareResponse(t, "chrome", clientFingerprints[chrome][tls.HelloChrome_112.Str()], resp)
+	compareResponse(t, "chrome", clientFingerprints[chrome][tls.HelloChrome_112.Str()], resp, false)
+	// A distinct resumed connection, rather than a second request on the first.
+	client.CloseIdleConnections()
 
 	req, err = http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -186,12 +137,14 @@ func chrome116WithPsk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compareResponse(t, "chrome", clientFingerprints[chrome][tls.HelloChrome_112_PSK.Str()], resp)
+	compareResponse(t, "chrome", clientFingerprints[chrome][tls.HelloChrome_112_PSK.Str()], resp, true)
 }
 
 func chrome112(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_112),
 	}
 
@@ -199,6 +152,7 @@ func chrome112(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -216,8 +170,10 @@ func chrome112(t *testing.T) {
 }
 
 func chrome111(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_111),
 	}
 
@@ -225,6 +181,7 @@ func chrome111(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -242,8 +199,10 @@ func chrome111(t *testing.T) {
 }
 
 func chrome110(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_110),
 	}
 
@@ -251,6 +210,7 @@ func chrome110(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -268,8 +228,10 @@ func chrome110(t *testing.T) {
 }
 
 func chrome109(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_109),
 	}
 
@@ -277,6 +239,7 @@ func chrome109(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -294,8 +257,10 @@ func chrome109(t *testing.T) {
 }
 
 func chrome108(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_108),
 	}
 
@@ -303,6 +268,7 @@ func chrome108(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -320,8 +286,10 @@ func chrome108(t *testing.T) {
 }
 
 func chrome107(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_107),
 	}
 
@@ -329,6 +297,7 @@ func chrome107(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -346,8 +315,10 @@ func chrome107(t *testing.T) {
 }
 
 func chrome105(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_105),
 	}
 
@@ -355,6 +326,7 @@ func chrome105(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -372,8 +344,10 @@ func chrome105(t *testing.T) {
 }
 
 func chrome104(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_104),
 	}
 
@@ -381,6 +355,7 @@ func chrome104(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -398,8 +373,10 @@ func chrome104(t *testing.T) {
 }
 
 func chrome103(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_103),
 	}
 
@@ -407,6 +384,7 @@ func chrome103(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -424,8 +402,10 @@ func chrome103(t *testing.T) {
 }
 
 func safari_16_0(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Safari_16_0),
 	}
 
@@ -433,6 +413,7 @@ func safari_16_0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -450,8 +431,10 @@ func safari_16_0(t *testing.T) {
 }
 
 func safari_iOS_16_0(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Safari_IOS_16_0),
 	}
 
@@ -459,6 +442,7 @@ func safari_iOS_16_0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -476,8 +460,10 @@ func safari_iOS_16_0(t *testing.T) {
 }
 
 func safari_iOS_18_0(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Safari_IOS_18_0),
 	}
 
@@ -485,6 +471,7 @@ func safari_iOS_18_0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -502,8 +489,10 @@ func safari_iOS_18_0(t *testing.T) {
 }
 
 func firefox_105(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Firefox_105),
 	}
 
@@ -511,6 +500,7 @@ func firefox_105(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -528,8 +518,10 @@ func firefox_105(t *testing.T) {
 }
 
 func firefox_106(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Firefox_106),
 	}
 
@@ -537,6 +529,7 @@ func firefox_106(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -554,8 +547,10 @@ func firefox_106(t *testing.T) {
 }
 
 func firefox_108(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Firefox_108),
 	}
 
@@ -563,6 +558,7 @@ func firefox_108(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -580,8 +576,10 @@ func firefox_108(t *testing.T) {
 }
 
 func chrome_124(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_124),
 	}
 
@@ -589,6 +587,7 @@ func chrome_124(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -606,8 +605,10 @@ func chrome_124(t *testing.T) {
 }
 
 func chrome_146_PSK(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_146_PSK),
 		tls_client.WithTimeoutSeconds(120),
 	}
@@ -616,6 +617,7 @@ func chrome_146_PSK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -629,7 +631,9 @@ func chrome_146_PSK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_146.GetClientHelloStr()], resp)
+	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_146.GetClientHelloStr()], resp, false)
+	// A distinct resumed connection, rather than a second request on the first.
+	client.CloseIdleConnections()
 
 	req, err = http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -643,12 +647,14 @@ func chrome_146_PSK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_146_PSK.GetClientHelloStr()], resp)
+	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_146_PSK.GetClientHelloStr()], resp, true)
 }
 
 func chrome_152_PSK(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_152_PSK),
 		tls_client.WithTimeoutSeconds(120),
 	}
@@ -657,6 +663,7 @@ func chrome_152_PSK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -670,7 +677,9 @@ func chrome_152_PSK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_152.GetClientHelloStr()], resp)
+	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_152.GetClientHelloStr()], resp, false)
+	// A distinct resumed connection, rather than a second request on the first.
+	client.CloseIdleConnections()
 
 	req, err = http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -684,12 +693,14 @@ func chrome_152_PSK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_152_PSK.GetClientHelloStr()], resp)
+	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_152_PSK.GetClientHelloStr()], resp, true)
 }
 
 func chrome_150_PSK(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_150_PSK),
 		tls_client.WithTimeoutSeconds(120),
 	}
@@ -698,6 +709,7 @@ func chrome_150_PSK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -711,7 +723,9 @@ func chrome_150_PSK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_150.GetClientHelloStr()], resp)
+	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_150.GetClientHelloStr()], resp, false)
+	// A distinct resumed connection, rather than a second request on the first.
+	client.CloseIdleConnections()
 
 	req, err = http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -725,12 +739,14 @@ func chrome_150_PSK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_150_PSK.GetClientHelloStr()], resp)
+	compareResponse(t, "chrome", clientFingerprints[chrome][profiles.Chrome_150_PSK.GetClientHelloStr()], resp, true)
 }
 
 func safari_iOS_26_0(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Safari_IOS_26_0),
 	}
 
@@ -738,6 +754,7 @@ func safari_iOS_26_0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -755,8 +772,10 @@ func safari_iOS_26_0(t *testing.T) {
 }
 
 func safari_iOS_18_5(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Safari_IOS_18_5),
 	}
 
@@ -764,6 +783,7 @@ func safari_iOS_18_5(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -781,8 +801,10 @@ func safari_iOS_18_5(t *testing.T) {
 }
 
 func chrome_144(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_144),
 	}
 
@@ -790,6 +812,7 @@ func chrome_144(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -807,8 +830,10 @@ func chrome_144(t *testing.T) {
 }
 
 func chrome_133(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_133),
 	}
 
@@ -816,6 +841,7 @@ func chrome_133(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -833,8 +859,10 @@ func chrome_133(t *testing.T) {
 }
 
 func chrome_131(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_131),
 	}
 
@@ -842,6 +870,7 @@ func chrome_131(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -859,8 +888,10 @@ func chrome_131(t *testing.T) {
 }
 
 func chrome_120(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_120),
 	}
 
@@ -868,6 +899,7 @@ func chrome_120(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -885,8 +917,10 @@ func chrome_120(t *testing.T) {
 }
 
 func chrome_117(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Chrome_117),
 	}
 
@@ -894,6 +928,7 @@ func chrome_117(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -911,8 +946,10 @@ func chrome_117(t *testing.T) {
 }
 
 func firefox_147(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Firefox_147),
 	}
 
@@ -920,6 +957,7 @@ func firefox_147(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -937,8 +975,10 @@ func firefox_147(t *testing.T) {
 }
 
 func firefox_117(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Firefox_117),
 	}
 
@@ -946,6 +986,7 @@ func firefox_117(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -963,8 +1004,10 @@ func firefox_117(t *testing.T) {
 }
 
 func firefox_110(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Firefox_110),
 	}
 
@@ -972,6 +1015,7 @@ func firefox_110(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -989,8 +1033,10 @@ func firefox_110(t *testing.T) {
 }
 
 func firefox_132(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Firefox_132),
 	}
 
@@ -998,6 +1044,7 @@ func firefox_132(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -1015,8 +1062,10 @@ func firefox_132(t *testing.T) {
 }
 
 func opera_91(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Opera_91),
 	}
 
@@ -1024,6 +1073,7 @@ func opera_91(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -1041,8 +1091,10 @@ func opera_91(t *testing.T) {
 }
 
 func safariIos17(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Safari_IOS_17_0),
 	}
 
@@ -1050,6 +1102,7 @@ func safariIos17(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -1066,7 +1119,7 @@ func safariIos17(t *testing.T) {
 	compareResponse(t, "safari_IOS", clientFingerprints[safariIos][profiles.Safari_IOS_17_0.GetClientHelloStr()], resp)
 }
 
-func compareResponse(t *testing.T, clientName string, expectedValues map[string]string, resp *http.Response) {
+func compareResponse(t *testing.T, clientName string, expectedValues map[string]string, resp *http.Response, resumed ...bool) {
 	defer resp.Body.Close()
 
 	readBytes, err := io.ReadAll(resp.Body)
@@ -1077,6 +1130,10 @@ func compareResponse(t *testing.T, clientName string, expectedValues map[string]
 	tlsApiResponse := TlsApiResponse{}
 	if err := json.Unmarshal(readBytes, &tlsApiResponse); err != nil {
 		t.Fatal(err)
+	}
+
+	if len(resumed) > 0 && tlsApiResponse.TLS.DidResume != resumed[0] {
+		t.Errorf("owned peer resumption=%v,want %v", tlsApiResponse.TLS.DidResume, resumed[0])
 	}
 
 	for key, expectedValue := range expectedValues {
@@ -1110,8 +1167,10 @@ func compareResponse(t *testing.T, clientName string, expectedValues map[string]
 }
 
 func okhttp4Android13(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Okhttp4Android13),
 	}
 
@@ -1119,6 +1178,7 @@ func okhttp4Android13(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -1136,8 +1196,10 @@ func okhttp4Android13(t *testing.T) {
 }
 
 func okhttp4Android12(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Okhttp4Android12),
 	}
 
@@ -1145,6 +1207,7 @@ func okhttp4Android12(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -1162,8 +1225,10 @@ func okhttp4Android12(t *testing.T) {
 }
 
 func okhttp4Android11(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Okhttp4Android11),
 	}
 
@@ -1171,6 +1236,7 @@ func okhttp4Android11(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -1188,8 +1254,10 @@ func okhttp4Android11(t *testing.T) {
 }
 
 func okhttp4Android10(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Okhttp4Android10),
 	}
 
@@ -1197,6 +1265,7 @@ func okhttp4Android10(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -1214,8 +1283,10 @@ func okhttp4Android10(t *testing.T) {
 }
 
 func okhttp4Android9(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Okhttp4Android9),
 	}
 
@@ -1223,6 +1294,7 @@ func okhttp4Android9(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -1240,8 +1312,10 @@ func okhttp4Android9(t *testing.T) {
 }
 
 func okhttp4Android8(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Okhttp4Android8),
 	}
 
@@ -1249,6 +1323,7 @@ func okhttp4Android8(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {
@@ -1266,8 +1341,10 @@ func okhttp4Android8(t *testing.T) {
 }
 
 func okhttp4Android7(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	options := []tls_client.HttpClientOption{
 		skipPeetCertVerify,
+		tls_client.WithServerNameOverwrite("owned.example"),
 		tls_client.WithClientProfile(profiles.Okhttp4Android7),
 	}
 
@@ -1275,6 +1352,7 @@ func okhttp4Android7(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 	if err != nil {

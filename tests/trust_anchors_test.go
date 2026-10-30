@@ -167,6 +167,7 @@ func TestTrustAnchors(t *testing.T) {
 // payload survives the handshake and that the JA4 fingerprint does not move
 // with it.
 func TestTrustAnchorsOnTheWire(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	ja4Values := map[string][]string{}
 	payloads := map[string]int{}
 
@@ -175,6 +176,7 @@ func TestTrustAnchorsOnTheWire(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/run_%d", tc.name, run), func(t *testing.T) {
 				options := []tls_client.HttpClientOption{
 					skipPeetCertVerify,
+					tls_client.WithServerNameOverwrite("owned.example"),
 					tls_client.WithClientProfile(tc.profile),
 					tls_client.WithTimeoutSeconds(120),
 				}
@@ -183,6 +185,7 @@ func TestTrustAnchorsOnTheWire(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				t.Cleanup(client.CloseIdleConnections)
 
 				req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 				if err != nil {
@@ -281,6 +284,7 @@ func TestTrustAnchorsAreAcceptedByAServer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Cleanup(client.CloseIdleConnections)
 
 			req, err := http.NewRequest(http.MethodGet, generate204Endpoint, nil)
 			if err != nil {

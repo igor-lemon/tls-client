@@ -25,6 +25,7 @@ func isGreaseValue(v uint64) bool {
 // signature_algorithms, so the fingerprint assertions in client_test.go cannot
 // detect it.
 func TestGreaseSignatureAlgorithmOnTheWire(t *testing.T) {
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	ja4Values := map[string][]string{}
 
 	for name, profile := range greaseSignatureSchemeProfiles {
@@ -32,6 +33,7 @@ func TestGreaseSignatureAlgorithmOnTheWire(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/run_%d", name, run), func(t *testing.T) {
 				options := []tls_client.HttpClientOption{
 					skipPeetCertVerify,
+					tls_client.WithServerNameOverwrite("owned.example"),
 					tls_client.WithClientProfile(profile),
 					tls_client.WithTimeoutSeconds(120),
 				}
@@ -40,6 +42,7 @@ func TestGreaseSignatureAlgorithmOnTheWire(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				t.Cleanup(client.CloseIdleConnections)
 
 				req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 				if err != nil {

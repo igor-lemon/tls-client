@@ -386,3 +386,27 @@ An explicit HTTP/3 settings map owns its field-section limit, including zero or
 omission. HTTP/1's MaxResponseHeaderBytes and HTTP/3 priority no longer select
 an unrelated H3 limit. Raw transports without a settings map retain their
 explicit transport option or the generic http3 default.
+
+## A11 owned catalogue fingerprint oracles
+
+Catalogue/header/GREASE-signature/trust-anchor wire checks now use an owned
+loopback TLS peer. It independently parses received ClientHello record bytes
+and actual H1/H2 fields (x/net HPACK), without reading ClientProfile or the
+expected fingerprint table. Salesforce JA3 and FoxIO JA4 published worked
+examples and changed/truncated-input negative controls bind the decoder.
+All received H2 frames remain in history; the second request's header assertion
+selects its actual new odd stream and requires progress, retaining reuse coverage.
+
+The33 browser and7 custom catalogue cases are separate subtests, without the
+external-service rate-limit sleeps. PSK controls explicitly close the first idle
+connection and require a distinct, cryptographically resumed handshake reported
+by the owned TLS server, rather than expecting a new ClientHello on a reused
+connection. Client/peer cleanup closes and joins owned resources. All catalogue,
+header, random-order, signature/trust-anchor wire and decoder controls passed20
+race repetitions (final6.850s). Production data/code and expected fingerprint
+values are unchanged. This is bounded catalogue/engine behavior, not a new
+Chrome observation or complete A11 acceptance. Remaining external H3/hooks/etc.
+fixtures are separate obligations; the full two-graph suites are still pending.
+
+Algorithm references: https://github.com/salesforce/ja3 and
+https://github.com/FoxIO-LLC/ja4/blob/main/technical_details/JA4.md .
