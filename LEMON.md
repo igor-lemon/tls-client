@@ -410,3 +410,22 @@ fixtures are separate obligations; the full two-graph suites are still pending.
 
 Algorithm references: https://github.com/salesforce/ja3 and
 https://github.com/FoxIO-LLC/ja4/blob/main/technical_details/JA4.md .
+
+## A11 cookie scope and ownership
+
+Cookies(u) now delegates network selection to the existing standard jar, which
+owns domain/path/secure/expiration handling. The old sidecar returned unrelated
+scopes, expired/foreign cookies and caller-mutated values. Metadata is copied
+on input/output; skip-existing uses name+domain+path and honors deletion. Only
+new updates are given to the backend, so unrelated cookies' Max-Age is not reset.
+GetAllCookies inventories exact canonical source hosts instead of guessing a
+registrable domain; this is a deliberate engine1 API correction. Its values
+retain owned original attributes. The existing backend public-suffix-list
+configuration is unchanged; this does not establish Chrome SameSite/PSL parity.
+
+Independent before controls demonstrated HTTP/secure/path/host/expiry leaks,
+mutation and same-name path collisions. After:20race offline ownership/scope
+controls,20race existing API cases and20race actual four-request cookie exchange
+pass. The external7-cookie count fixture is replaced by exact received cookies,
+rejected foreign/expired cookies, replacement suppression, distinct paths and
+empty-value deletion. Browser values and retry rules are unchanged.

@@ -160,3 +160,9 @@ No browser automation. Just simple API calls that return the exact cookies and h
 
 ### Powered by
 [![JetBrains logo.](https://resources.jetbrains.com/storage/products/company/brand/logos/jetbrains.svg)](https://jb.gg/OpenSource)
+
+The unreleased engine1 cookie wrapper delegates request selection to the
+standard jar. `GetAllCookies` returns independently owned metadata grouped by
+exact canonical source host. `WithSkipExisting` preserves an active cookie with
+the same name/domain/path; explicit deletion still applies. These raw adapter
+controls do not establish browser SameSite or public-suffix-policy equivalence.

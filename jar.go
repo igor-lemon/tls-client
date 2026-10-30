@@ -1,10 +1,13 @@
 package tls_client
 
 import (
-	"fmt"
+	"golang.org/x/net/idna"
+	"net"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/cookiejar"
@@ -48,210 +51,176 @@ type CookieJar interface {
 	GetAllCookies() map[string][]*http.Cookie
 }
 
+// The standard jar owns network selection. Records retain owned metadata for
+// skip-existing and inventory; they never bypass domain/path/secure/expiry.
+type cookieIdentity struct{ name, domain, path string }
+type cookieRecord struct {
+	cookie   *http.Cookie
+	host     string
+	created  time.Time
+	sequence uint64
+}
 type cookieJar struct {
-	jar        *cookiejar.Jar
-	config     *cookieJarConfig
-	allCookies map[string][]*http.Cookie
+	jar      *cookiejar.Jar
+	config   *cookieJarConfig
+	records  map[cookieIdentity]cookieRecord
+	sequence uint64
 	sync.RWMutex
 }
 
 func NewCookieJar(options ...CookieJarOption) CookieJar {
 	realJar, _ := cookiejar.New(nil)
-
 	config := &cookieJarConfig{}
-
 	for _, opt := range options {
 		opt(config)
 	}
-
 	if config.logger == nil {
 		config.logger = NewNoopLogger()
 	}
-
 	if config.debug {
 		config.logger = NewDebugLogger(config.logger)
 	}
-
-	c := &cookieJar{
-		jar:        realJar,
-		config:     config,
-		allCookies: make(map[string][]*http.Cookie),
-	}
-
-	return c
+	return &cookieJar{jar: realJar, config: config, records: make(map[cookieIdentity]cookieRecord)}
 }
 
-func (jar *cookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
-	jar.Lock()
-	defer jar.Unlock()
+func canonicalCookieHost(host string) (string, bool) {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String(), true
+	}
+	ascii, err := idna.Lookup.ToASCII(host)
+	return strings.ToLower(ascii), err == nil && ascii != ""
+}
 
-	notEmptyCookies := jar.nonEmpty(cookies)
-	uniqueCookies := jar.unique(notEmptyCookies)
-
-	hostKey := jar.buildCookieHostKey(u)
-
-	if !jar.config.skipExisting {
-		existingCookies := jar.allCookies[hostKey]
-
-		var remainingExistingCookies []*http.Cookie
-
-		for _, existingCookie := range existingCookies {
-			shouldOverwrite := false
-			for _, cookie := range uniqueCookies {
-				shouldOverwrite = existingCookie.Name == cookie.Name
-
-				if shouldOverwrite {
-					break
-				}
-			}
-
-			if shouldOverwrite {
-				continue
-			}
-
-			remainingExistingCookies = append(remainingExistingCookies, existingCookie)
+func cookieKey(u *url.URL, c *http.Cookie) (cookieIdentity, bool) {
+	host, ok := canonicalCookieHost(u.Hostname())
+	if !ok || c.Name == "" {
+		return cookieIdentity{}, false
+	}
+	domain := host
+	if c.Domain != "" {
+		domain = strings.TrimPrefix(strings.ToLower(c.Domain), ".")
+		if strings.HasSuffix(domain, ".") || strings.HasPrefix(domain, ".") {
+			return cookieIdentity{}, false
 		}
+		canonical, valid := canonicalCookieHost(domain)
+		if !valid || canonical != domain {
+			return cookieIdentity{}, false
+		}
+		if domain != host && (net.ParseIP(host) != nil || !strings.HasSuffix(host, "."+domain)) {
+			return cookieIdentity{}, false
+		}
+	}
+	path := c.Path
+	if !strings.HasPrefix(path, "/") {
+		path = "/"
+		if strings.HasPrefix(u.Path, "/") {
+			if end := strings.LastIndex(u.Path, "/"); end > 0 {
+				path = u.Path[:end]
+			}
+		}
+	}
+	return cookieIdentity{c.Name, domain, path}, true
+}
 
-		newCookies := append(remainingExistingCookies, uniqueCookies...)
+func copyJarCookie(c *http.Cookie) *http.Cookie {
+	copy := *c
+	copy.Unparsed = append([]string(nil), c.Unparsed...)
+	return &copy
+}
+func expiredCookie(c *http.Cookie, created, now time.Time) bool {
+	if c.MaxAge < 0 {
+		return true
+	}
+	if c.MaxAge > 0 {
+		return now.Sub(created).Seconds() >= float64(c.MaxAge)
+	}
+	return !c.Expires.IsZero() && !c.Expires.After(now)
+}
+func (j *cookieJar) prune(now time.Time) {
+	for key, record := range j.records {
+		if expiredCookie(record.cookie, record.created, now) {
+			delete(j.records, key)
+		}
+	}
+}
 
-		jar.jar.SetCookies(u, newCookies)
-		jar.allCookies[hostKey] = newCookies
-
+func (j *cookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	if u == nil {
 		return
 	}
-
-	var newNonExistentCookies []*http.Cookie
-
-	existingCookies := jar.allCookies[hostKey]
-
-	for _, cookie := range uniqueCookies {
-		alreadyInJar := false
-
-		for _, existingCookie := range existingCookies {
-			alreadyInJar = cookie.Name == existingCookie.Name
-
-			if alreadyInJar {
+	j.Lock()
+	defer j.Unlock()
+	now := time.Now()
+	j.prune(now)
+	for _, c := range cookies {
+		if c == nil {
+			continue
+		}
+		key, ok := cookieKey(u, c)
+		if !ok {
+			continue
+		}
+		deletion := expiredCookie(c, now, now)
+		if !deletion && !j.config.allowEmptyCookies && c.Value == "" {
+			continue
+		}
+		if _, exists := j.records[key]; exists && j.config.skipExisting && !deletion {
+			continue
+		}
+		owned := copyJarCookie(c)
+		j.jar.SetCookies(u, []*http.Cookie{owned})
+		if deletion {
+			delete(j.records, key)
+			continue
+		}
+		// Only accepted backend entries enter the metadata inventory. Query at
+		// this cookie's path and (for secure cookies) HTTPS, without network I/O.
+		probe := *u
+		probe.Path = key.path
+		probe.RawPath = ""
+		if c.Secure {
+			probe.Scheme = "https"
+		}
+		accepted := false
+		for _, stored := range j.jar.Cookies(&probe) {
+			if stored.Name == c.Name && stored.Value == c.Value {
+				accepted = true
 				break
 			}
 		}
-
-		if alreadyInJar {
-			jar.config.logger.Debug("cookie %s is already in jar, skipping", cookie.Name)
+		if !accepted {
 			continue
 		}
-
-		jar.config.logger.Debug("cookie %s is not in jar yet, adding", cookie.Name)
-		newNonExistentCookies = append(newNonExistentCookies, cookie)
-	}
-
-	newCookies := append(existingCookies, newNonExistentCookies...)
-	jar.jar.SetCookies(u, newCookies)
-	jar.allCookies[hostKey] = newCookies
-}
-
-func (jar *cookieJar) Cookies(u *url.URL) []*http.Cookie {
-	jar.RLock()
-	defer jar.RUnlock()
-
-	hostKey := jar.buildCookieHostKey(u)
-
-	allCookies := jar.allCookies[hostKey]
-
-	return jar.notExpired(allCookies)
-}
-
-func (jar *cookieJar) GetAllCookies() map[string][]*http.Cookie {
-	jar.RLock()
-	defer jar.RUnlock()
-
-	copied := make(map[string][]*http.Cookie)
-	for u, c := range jar.allCookies {
-		copied[u] = c
-	}
-
-	return copied
-}
-
-func (jar *cookieJar) buildCookieHostKey(u *url.URL) string {
-	host := u.Host
-
-	hostParts := strings.Split(host, ".")
-
-	switch len(hostParts) {
-	case 3:
-		return fmt.Sprintf("%s.%s", hostParts[len(hostParts)-2], hostParts[len(hostParts)-1])
-	case 2:
-		return fmt.Sprintf("%s.%s", hostParts[len(hostParts)-2], hostParts[len(hostParts)-1])
-	default:
-		return host
+		j.sequence++
+		host, _ := canonicalCookieHost(u.Hostname())
+		j.records[key] = cookieRecord{cookie: owned, host: host, created: now, sequence: j.sequence}
 	}
 }
 
-func (jar *cookieJar) unique(cookies []*http.Cookie) []*http.Cookie {
-	var filteredCookies []*http.Cookie
-	var uniqueCookies []string
-
-	for i := len(cookies) - 1; i >= 0; i-- {
-		c := cookies[i]
-
-		if inSlice(uniqueCookies, c.Name) {
-			continue
-		}
-
-		filteredCookies = append(filteredCookies, c)
-		uniqueCookies = append(uniqueCookies, c.Name)
+func (j *cookieJar) Cookies(u *url.URL) []*http.Cookie {
+	if u == nil {
+		return nil
 	}
-
-	return filteredCookies
+	j.RLock()
+	defer j.RUnlock()
+	return j.jar.Cookies(u)
 }
 
-func (jar *cookieJar) nonEmpty(cookies []*http.Cookie) []*http.Cookie {
-	if jar.config.allowEmptyCookies {
-		return cookies
+// Inventory keys are exact canonical source hosts, never a guessed registrable
+// domain. Values retain their original attributes and are independently owned.
+func (j *cookieJar) GetAllCookies() map[string][]*http.Cookie {
+	j.Lock()
+	defer j.Unlock()
+	j.prune(time.Now())
+	records := make([]cookieRecord, 0, len(j.records))
+	for _, record := range j.records {
+		records = append(records, record)
 	}
-
-	var filteredCookies []*http.Cookie
-
-	for _, c := range cookies {
-		if c.Value == "" {
-			jar.config.logger.Debug("cookie %s is empty and will be filtered out", c.Name)
-			continue
-		}
-
-		filteredCookies = append(filteredCookies, c)
+	sort.Slice(records, func(a, b int) bool { return records[a].sequence < records[b].sequence })
+	result := make(map[string][]*http.Cookie)
+	for _, record := range records {
+		result[record.host] = append(result[record.host], copyJarCookie(record.cookie))
 	}
-
-	return filteredCookies
-}
-
-func (jar *cookieJar) notExpired(cookies []*http.Cookie) []*http.Cookie {
-	var filteredCookies []*http.Cookie
-
-	for _, c := range cookies {
-		// we misuse the max age here for "deletion" reasons. To be 100% correct a MaxAge equals 0 should also be deleted but we do not do it for now.
-		if c.MaxAge < 0 {
-			jar.config.logger.Debug("cookie %s in jar max age set to 0 or below. will be excluded from request", c.Name)
-			continue
-		}
-
-		// TODO: this is currently commented out as the cookie parser does not parse the expire correctly out of the Set-Cookie header.
-		/*if c.Expires.Before(now) {
-			jar.config.logger.Debug("cookie %s in jar expired. will be excluded from request", c.Name)
-			continue
-		}*/
-
-		filteredCookies = append(filteredCookies, c)
-	}
-
-	return filteredCookies
-}
-
-func inSlice(slice []string, elem string) bool {
-	for _, e := range slice {
-		if e == elem {
-			return true
-		}
-	}
-
-	return false
+	return result
 }

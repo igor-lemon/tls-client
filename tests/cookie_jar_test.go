@@ -1,9 +1,12 @@
 package tests
 
 import (
+	"github.com/igor-lemon/fhttp/httptest"
 	"io"
 	"net/url"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/igor-lemon/tls-client/profiles"
 
@@ -70,106 +73,85 @@ func TestClient_SkipExistingCookiesOnClientSetCookies(t *testing.T) {
 }
 
 func TestClient_SkipExistingCookiesOnSetCookiesResponse(t *testing.T) {
-	jarOptions := []tls_client.CookieJarOption{
-		tls_client.WithSkipExisting(),
-	}
-
-	jar := tls_client.NewCookieJar(jarOptions...)
-
-	options := []tls_client.HttpClientOption{
-		tls_client.WithClientProfile(profiles.Chrome_133),
-		tls_client.WithCookieJar(jar),
-	}
-
-	client, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(), options...)
+	var requests atomic.Int32
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		number := requests.Add(1)
+		got := map[string]string{}
+		for _, cookie := range r.Cookies() {
+			got[cookie.Name] = cookie.Value
+		}
+		if number == 1 {
+			if len(got) != 0 {
+				t.Errorf("first request cookies=%v", got)
+			}
+			http.SetCookie(w, &http.Cookie{Name: "root", Value: "s1", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "scoped", Value: "a", Path: "/scope"})
+			http.SetCookie(w, &http.Cookie{Name: "expired", Value: "past", Path: "/", Expires: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)})
+			http.SetCookie(w, &http.Cookie{Name: "foreign", Value: "wrong", Domain: "other.test", Path: "/"})
+		} else {
+			wantRoot := "s1"
+			if number == 4 {
+				wantRoot = ""
+			}
+			if got["root"] != wantRoot || got["scoped"] != "a" || len(got) != map[bool]int{true: 1, false: 2}[number == 4] {
+				t.Errorf("request%d cookies=%v", number, got)
+			}
+			if number == 2 {
+				http.SetCookie(w, &http.Cookie{Name: "root", Value: "s2", Path: "/"})
+				http.SetCookie(w, &http.Cookie{Name: "scoped", Value: "b", Path: "/other"})
+			}
+			if number == 3 {
+				http.SetCookie(w, &http.Cookie{Name: "root", Path: "/", MaxAge: -1})
+			}
+		}
+		io.WriteString(w, "owned page")
+	}))
+	defer peer.Close()
+	jar := tls_client.NewCookieJar(tls_client.WithSkipExisting())
+	client, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(), tls_client.WithClientProfile(profiles.Chrome_133), tls_client.WithCookieJar(jar))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if err != nil {
-		t.Fatal(err)
+	defer client.CloseIdleConnections()
+	endpoint := peer.URL + "/scope/page"
+	u, _ := url.Parse(endpoint)
+	values := func(at *url.URL) map[string]string {
+		result := map[string]string{}
+		for _, cookie := range client.GetCookies(at) {
+			result[cookie.Name] = cookie.Value
+		}
+		return result
 	}
-
-	urlString := "https://eu.kith.com/"
-	req, err := http.NewRequest(http.MethodGet, urlString, nil)
-	if err != nil {
-		t.Fatal(err)
+	for n := 1; n <= 4; n++ {
+		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil || string(body) != "owned page" {
+			t.Fatalf("body=%q error=%v", body, err)
+		}
+		if n == 1 {
+			got := values(u)
+			if len(got) != 2 || got["root"] != "s1" || got["scoped"] != "a" {
+				t.Fatalf("first response scope=%v", got)
+			}
+			client.SetCookies(u, []*http.Cookie{{Name: "root", Value: "client", Path: "/"}})
+		}
 	}
-
-	req.Header = http.Header{
-		"accept":          {"*/*"},
-		"accept-encoding": {"gzip"},
-		"accept-language": {"de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"},
-		"user-agent":      {"Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"},
-		http.HeaderOrderKey: {
-			"accept",
-			"accept-encoding",
-			"accept-language",
-			"user-agent",
-		},
+	other, _ := url.Parse(peer.URL + "/other/page")
+	got := values(other)
+	if len(got) != 1 || got["scoped"] != "b" {
+		t.Fatalf("other-path cookies=%v", got)
 	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
+	if requests.Load() != 4 {
+		t.Fatalf("requests=%d", requests.Load())
 	}
-
-	defer resp.Body.Close()
-
-	_, err = io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	u, _ := url.Parse(urlString)
-
-	cookiesAfterFirstRequest := client.GetCookies(u)
-
-	assert.Equal(t, 7, len(cookiesAfterFirstRequest))
-
-	cookie3 := &http.Cookie{
-		Name:   cookiesAfterFirstRequest[0].Name,
-		Value:  cookiesAfterFirstRequest[0].Value,
-		Domain: cookiesAfterFirstRequest[0].Domain,
-		MaxAge: cookiesAfterFirstRequest[0].MaxAge,
-	}
-	client.SetCookies(u, []*http.Cookie{cookie3})
-
-	assert.Equal(t, 7, len(client.GetCookies(u)))
-
-	req, err = http.NewRequest(http.MethodGet, "https://eu.kith.com/", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req.Header = http.Header{
-		"accept":          {"*/*"},
-		"accept-encoding": {"gzip"},
-		"accept-language": {"de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"},
-		"user-agent":      {"Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"},
-		http.HeaderOrderKey: {
-			"accept",
-			"accept-encoding",
-			"accept-language",
-			"user-agent",
-		},
-	}
-
-	resp, err = client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer resp.Body.Close()
-
-	_, err = io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cookiesAfterSecondRequest := client.GetCookies(u)
-
-	assert.Equal(t, 7, len(cookiesAfterSecondRequest))
 }
 
 func TestClient_ExcludeExpiredCookiesFromRequest(t *testing.T) {
