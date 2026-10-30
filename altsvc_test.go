@@ -3,6 +3,7 @@ package tls_client
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"net/url"
@@ -459,25 +460,59 @@ func TestAnAlternativePastItsMaxAgeOrClearedIsNotGoneTo(t *testing.T) {
 
 func TestAnAnswerOf421OrAValueQuicheCannotReadChangesNothing(t *testing.T) {
 	o := newH3Origin(t, originSays{})
-	c := h3Client(t, altSvcPolicy(t, nil), &recordSays{}, NewQUICState())
-	rt := c.(*httpClient).built
-	d := rt.dnsH3
+	// This checks learning from real 421 answers, independently of which job
+	// wins the cold TCP/QUIC race. Existing policy budgets establish H3 after
+	// the first advertisement; TCP fallback remains enabled.
+	c := h3Client(t, altSvcPolicy(t, map[string]string{
+		"quic.alt_svc_tcp_waits_with_h2": "true", "quic.tcp_wait_cold_ms": "1000", "quic.tcp_wait_max_ms": "1000",
+	}), &recordSays{}, NewQUICState())
+	request := func(c HttpClient, url string, status int, protocol string) {
+		t.Helper()
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, readErr := io.ReadAll(res.Body)
+		closeErr := res.Body.Close()
+		if readErr != nil || closeErr != nil {
+			t.Fatalf("incomplete response: read=%v close=%v", readErr, closeErr)
+		}
+		if res.StatusCode != status || res.Proto != protocol || string(body) != protocol {
+			t.Fatalf("actual response: status%d protocol%s body%q; want%d/%s", res.StatusCode, res.Proto, body, status, protocol)
+		}
+	}
+	d := c.(*httpClient).built.dnsH3
 	origin := quicServer{"https://a.test", o.addr}
-	came(t, c, altURL(o, "/", `h3=":0"`))
+	kept := func() {
+		t.Helper()
+		got := d.State.altSvcOf(origin)
+		port, err := strconv.ParseUint(portOf(o), 10, 16)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].port != uint16(port) {
+			t.Fatalf("what was kept after an advertisement, unread value or421: %v", got)
+		}
+	}
+	request(c, altURL(o, "/", `h3=":0"`), 200, "HTTP/2.0")
 	if d.State.altSvcOf(origin) != nil {
-		t.Error("a value that is not read was taken")
+		t.Fatal("a value that is not read was taken")
 	}
-	came(t, c, altURL(o, "/", `h3=":`+portOf(o)+`"`))
-	came(t, c, altURL(o, "/", `h3=":0"`))
-	came(t, c, altURL(o, "/", "clear")+"&status=421")
-	if got := d.State.altSvcOf(origin); len(got) != 1 {
-		t.Errorf("what was kept after a value not read and a 421: %v", got)
-	}
+	request(c, altURL(o, "/", `h3=":`+portOf(o)+`"`), 200, "HTTP/2.0")
+	kept()
+	request(c, altURL(o, "/", `h3=":0"`), 200, "HTTP/3.0")
+	kept()
+	request(c, altURL(o, "/", "clear")+"&status=421", 421, "HTTP/3.0")
+	kept()
 	// Without quic.alt_svc nothing is kept.
 	c = h3Client(t, dnsH3Policy(t, nil), &recordSays{}, NewQUICState())
-	came(t, c, altURL(o, "/", `h3=":`+portOf(o)+`"`))
+	request(c, altURL(o, "/", `h3=":`+portOf(o)+`"`), 200, "HTTP/2.0")
 	if got := c.(*httpClient).built.dnsH3.State.altSvcOf(origin); got != nil {
-		t.Errorf("kept without quic.alt_svc: %v", got)
+		t.Fatalf("kept without quic.alt_svc: %v", got)
 	}
 }
 
