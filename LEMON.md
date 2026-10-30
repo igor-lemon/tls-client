@@ -429,3 +429,9 @@ controls,20race existing API cases and20race actual four-request cookie exchange
 pass. The external7-cookie count fixture is replaced by exact received cookies,
 rejected foreign/expired cookies, replacement suppression, distinct paths and
 empty-value deletion. Browser values and retry rules are unchanged.
+
+A11 hook fixtures use owned loopback HTTP listeners instead of httpbin. Every
+original hook ordering/error/panic/registration assertion remains; the peer
+additionally checks pre-hook headers and zero/one origin request counts. The
+request-failure fixture closes its own accepted socket instead of relying on DNS.
+Twenty race repetitions pass, including concurrent registration.

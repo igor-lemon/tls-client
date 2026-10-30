@@ -1,8 +1,11 @@
 package tests
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/igor-lemon/fhttp/httptest"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,6 +18,7 @@ import (
 )
 
 func TestPreHookModifiesRequestHeaders(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, map[string]string{"X-Custom-Header": "test-value"})
 	client, err := tls_client.NewHttpClient(
 		tls_client.NewNoopLogger(),
 		tls_client.WithClientProfile(profiles.Chrome_124),
@@ -25,8 +29,9 @@ func TestPreHookModifiesRequestHeaders(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/headers", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -39,6 +44,7 @@ func TestPreHookModifiesRequestHeaders(t *testing.T) {
 }
 
 func TestPreHookErrorAbortsRequest(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 0, nil)
 	expectedErr := errors.New("pre-hook error")
 
 	client, err := tls_client.NewHttpClient(
@@ -50,8 +56,9 @@ func TestPreHookErrorAbortsRequest(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -60,6 +67,7 @@ func TestPreHookErrorAbortsRequest(t *testing.T) {
 }
 
 func TestPostHookReceivesCorrectMetadata(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	var capturedCtx *tls_client.PostResponseContext
 
 	client, err := tls_client.NewHttpClient(
@@ -72,8 +80,9 @@ func TestPostHookReceivesCorrectMetadata(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -88,6 +97,7 @@ func TestPostHookReceivesCorrectMetadata(t *testing.T) {
 }
 
 func TestMultiplePreHooksExecuteInOrder(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	var order []int
 	var mu sync.Mutex
 
@@ -115,8 +125,9 @@ func TestMultiplePreHooksExecuteInOrder(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -127,6 +138,7 @@ func TestMultiplePreHooksExecuteInOrder(t *testing.T) {
 }
 
 func TestMultiplePostHooksExecuteInOrder(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	var order []int
 	var mu sync.Mutex
 
@@ -154,8 +166,9 @@ func TestMultiplePostHooksExecuteInOrder(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -166,6 +179,7 @@ func TestMultiplePostHooksExecuteInOrder(t *testing.T) {
 }
 
 func TestPreHookErrorStopsSubsequentHooks(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 0, nil)
 	var executedHooks []int
 	var mu sync.Mutex
 	expectedErr := errors.New("hook 2 error")
@@ -194,8 +208,9 @@ func TestPreHookErrorStopsSubsequentHooks(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -205,6 +220,7 @@ func TestPreHookErrorStopsSubsequentHooks(t *testing.T) {
 }
 
 func TestPostHookPanicAbortsSubsequentHooks(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	var executedHooks []int
 	var mu sync.Mutex
 
@@ -232,8 +248,9 @@ func TestPostHookPanicAbortsSubsequentHooks(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -245,6 +262,7 @@ func TestPostHookPanicAbortsSubsequentHooks(t *testing.T) {
 }
 
 func TestPostHookReceivesErrorOnRequestFailure(t *testing.T) {
+	endpoint := newOwnedFailingHookPeer(t)
 	var capturedCtx *tls_client.PostResponseContext
 
 	client, err := tls_client.NewHttpClient(
@@ -258,8 +276,8 @@ func TestPostHookReceivesErrorOnRequestFailure(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Request to a non-existent host to trigger an error
-	req, err := http.NewRequest(http.MethodGet, "https://this-host-does-not-exist-12345.invalid/", nil)
+	// A test-owned peer accepts and closes without an HTTP response.
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -272,6 +290,7 @@ func TestPostHookReceivesErrorOnRequestFailure(t *testing.T) {
 }
 
 func TestOnPreRequestRuntimeRegistration(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, map[string]string{"X-Runtime-Hook": "added"})
 	client, err := tls_client.NewHttpClient(
 		tls_client.NewNoopLogger(),
 		tls_client.WithClientProfile(profiles.Chrome_124),
@@ -286,7 +305,7 @@ func TestOnPreRequestRuntimeRegistration(t *testing.T) {
 		return nil
 	})
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -298,6 +317,7 @@ func TestOnPreRequestRuntimeRegistration(t *testing.T) {
 }
 
 func TestOnPostResponseRuntimeRegistration(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	client, err := tls_client.NewHttpClient(
 		tls_client.NewNoopLogger(),
 		tls_client.WithClientProfile(profiles.Chrome_124),
@@ -311,7 +331,7 @@ func TestOnPostResponseRuntimeRegistration(t *testing.T) {
 		return nil
 	})
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -323,6 +343,7 @@ func TestOnPostResponseRuntimeRegistration(t *testing.T) {
 }
 
 func TestPostHookNotCalledOnPreHookError(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 0, nil)
 	var postHookCalled bool
 	preHookErr := errors.New("pre-hook failed")
 
@@ -339,8 +360,9 @@ func TestPostHookNotCalledOnPreHookError(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -352,6 +374,7 @@ func TestPostHookNotCalledOnPreHookError(t *testing.T) {
 }
 
 func TestHooksThreadSafety(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	client, err := tls_client.NewHttpClient(
 		tls_client.NewNoopLogger(),
 		tls_client.WithClientProfile(profiles.Chrome_124),
@@ -380,7 +403,7 @@ func TestHooksThreadSafety(t *testing.T) {
 	}
 	wg.Wait()
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -393,6 +416,7 @@ func TestHooksThreadSafety(t *testing.T) {
 }
 
 func TestCombinedConstructorAndRuntimeHooks(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	var order []int
 	var mu sync.Mutex
 
@@ -429,7 +453,7 @@ func TestCombinedConstructorAndRuntimeHooks(t *testing.T) {
 		return nil
 	})
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -441,6 +465,7 @@ func TestCombinedConstructorAndRuntimeHooks(t *testing.T) {
 }
 
 func TestPreHookContinueOnError(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	var executedHooks []int
 	var mu sync.Mutex
 
@@ -468,8 +493,9 @@ func TestPreHookContinueOnError(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -481,6 +507,7 @@ func TestPreHookContinueOnError(t *testing.T) {
 }
 
 func TestPreHookAbortByDefault(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 0, nil)
 	var executedHooks []int
 	var mu sync.Mutex
 
@@ -508,8 +535,9 @@ func TestPreHookAbortByDefault(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -521,6 +549,7 @@ func TestPreHookAbortByDefault(t *testing.T) {
 }
 
 func TestPostHookContinueOnError(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	var executedHooks []int
 	var mu sync.Mutex
 
@@ -548,8 +577,9 @@ func TestPostHookContinueOnError(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -561,6 +591,7 @@ func TestPostHookContinueOnError(t *testing.T) {
 }
 
 func TestPostHookAbortByDefault(t *testing.T) {
+	endpoint := newOwnedHookPeer(t, 1, nil)
 	var executedHooks []int
 	var mu sync.Mutex
 
@@ -588,8 +619,9 @@ func TestPostHookAbortByDefault(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, "https://httpbin.org/get", nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -598,4 +630,41 @@ func TestPostHookAbortByDefault(t *testing.T) {
 
 	// Hook 3 should NOT execute because hook 2 returned a regular error
 	assert.Equal(t, []int{1, 2}, executedHooks)
+}
+
+// Hook fixtures count actual origin requests; an aborted pre-hook must never
+// reach this listener. Header checks observe the peer rather than caller maps.
+func newOwnedHookPeer(t *testing.T, expected int64, headers map[string]string) string {
+	t.Helper()
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		for name, value := range headers {
+			if got := r.Header.Get(name); got != value {
+				t.Errorf("origin header %s=%q, want %q", name, got, value)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"headers": r.Header})
+	}))
+	t.Cleanup(func() { server.Close(); require.Equal(t, expected, requests.Load(), "actual origin request count") })
+	return server.URL
+}
+func newOwnedFailingHookPeer(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			c, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	t.Cleanup(func() { listener.Close(); <-done })
+	return "http://" + listener.Addr().String()
 }
