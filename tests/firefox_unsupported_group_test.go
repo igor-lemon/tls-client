@@ -1,8 +1,10 @@
 package tests
 
 import (
-	"fmt"
+	"github.com/stretchr/testify/require"
+	"io"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	http "github.com/igor-lemon/fhttp"
@@ -13,6 +15,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestWeb(t *testing.T) {
+	var requests atomic.Int64
+	endpoint, roots := newOwnedVerifiedTLSPeer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		require.Equal(t, http.MethodPost, r.Method)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Empty(t, body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(func() { require.EqualValues(t, 1, requests.Load()) })
 // TestFirefoxHandshakeWithGroupWithoutKeyShare connects with Firefox_110 to a
 // server that only accepts P-384. Firefox lists P-384 in supported_groups next
 // to the FFDHE groups, but sends key shares for X25519 and P-256 only, so the

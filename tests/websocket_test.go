@@ -81,12 +81,14 @@ func TestWebSocketEcho(t *testing.T) {
 }
 
 func TestWebSocketEchoRealWebserver(t *testing.T) {
-	url := "wss://echo.websocket.org"
+	endpoint, roots := newOwnedVerifiedTLSPeer(t, http.HandlerFunc(echoHandler))
+	url := "wss" + endpoint[len("https"):]
 
 	options := []tls_client.HttpClientOption{
 		tls_client.WithClientProfile(profiles.Chrome_133),
 		tls_client.WithRandomTLSExtensionOrder(),
 		tls_client.WithForceHttp1(), // WebSocket requires HTTP/1.1
+		tls_client.WithTransportOptions(&tls_client.TransportOptions{RootCAs: roots}),
 	}
 
 	client, err := tls_client.NewHttpClient(nil, options...)
@@ -113,14 +115,14 @@ func TestWebSocketEchoRealWebserver(t *testing.T) {
 
 	defer wsConnection.Close()
 
+	require.NoError(t, wsConnection.SetReadDeadline(time.Now().Add(2*time.Second)))
 	testMessage := "hello world"
 	err = wsConnection.WriteMessage(gorillaWebsocket.TextMessage, []byte(testMessage))
 	require.NoError(t, err)
 
 	_, msg, err := wsConnection.ReadMessage()
 	require.NoError(t, err)
-	// echo.websocket.org sends its own message instead of echoing, so just verify we got a response
-	require.NotEmpty(t, string(msg))
+	require.Equal(t, testMessage, string(msg))
 	t.Logf("Received message from server: %s", string(msg))
 
 	wsConnection.SetReadDeadline(time.Now().Add(2 * time.Second))
