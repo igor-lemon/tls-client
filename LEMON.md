@@ -494,3 +494,9 @@ negative controls. Raw control bytes remain available beside normalized labels.
 All H3/routing/body controls pass20race together (4.261s). The owned peer is a
 bounded first-request technical fixture, not a complete alternate H3 server or
 an independent browser implementation.
+
+A11 standalone support pins QUIC2484971b's buffered-QPACK lifetime repair,
+so consumers outside the owner's module also receive that engine fix. Caller
+cancellation, blocked sections and live feedback errors retain their controls.
+The module pin changes no browser values. Full standalone/production acceptance
+remains source-bound and mandatory; earlier module metadata stays in evidence.
