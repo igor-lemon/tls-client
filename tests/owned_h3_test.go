@@ -57,14 +57,14 @@ func ownedH3Grease(n uint64) bool { return n >= 33 && (n-33)%31 == 0 }
 func newOwnedHTTP3Peer(t *testing.T, controlFrames int, seen ...chan<- string) string {
 	t.Helper()
 	cert := selfSignedCert(t)
-	ln, err := quic.ListenAddr("127.0.0.1:0", &tls.Config{
+	packets, tcp, err := listenOwnedH3Ports()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = packets.Close(); _ = tcp.Close() })
+	ln, err := quic.Listen(packets, &tls.Config{
 		Certificates: []tls.Certificate{{Certificate: cert.Certificate, PrivateKey: cert.PrivateKey}}, NextProtos: []string{"h3"},
 	}, &quic.Config{})
 	require.NoError(t, err)
-	// The racing TCP leg has an owned, unavailable endpoint. No public DNS or
-	// external service is involved and no application request reaches that leg.
-	tcp, err := net.Listen("tcp4", ln.Addr().String())
-	require.NoError(t, err)
+	// The reserved racing TCP leg is owned and unavailable to application I/O.
 	tcpDone := make(chan struct{})
 	go func() {
 		defer close(tcpDone)
