@@ -500,3 +500,11 @@ so consumers outside the owner's module also receive that engine fix. Caller
 cancellation, blocked sections and live feedback errors retain their controls.
 The module pin changes no browser values. Full standalone/production acceptance
 remains source-bound and mandatory; earlier module metadata stays in evidence.
+
+## A13 explicit empty HTTP/3 settings
+
+Keep nil/default and explicitly empty SETTINGS distinct on normal, DNS and
+Alt-Svc routes as well as racing. Empty data must not inherit H1's response
+header limit. Browser values remain in JSON; no preset/name branch is added.
+The regression checks both the unconfigured legacy fallback and the configured
+empty case through actual HTTP/3 transport construction.

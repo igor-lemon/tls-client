@@ -335,7 +335,9 @@ func closeTransport(transport http.RoundTripper) {
 }
 
 func (rt *roundTripper) getHttp3Settings() map[uint64]uint64 {
-	if len(rt.http3Settings) == 0 {
+	// Nil means legacy/default SETTINGS; an explicitly empty map still owns
+	// the SETTINGS choice and must not inherit H1 response-header limits.
+	if rt.http3Settings == nil {
 		return nil
 	}
 
