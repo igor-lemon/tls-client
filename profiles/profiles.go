@@ -99,7 +99,14 @@ var MappedTLSClients = map[string]ClientProfile{
 	"okhttp4_android_13":     Okhttp4Android13,
 }
 
+// QUICClientHelloFactory builds a fresh independent hello with the live connection's
+// transport parameters. It may be called concurrently; returned data is owned by
+// that connection. A nil factory retains the low-level legacy API behavior.
+type QUICClientHelloFactory func([]byte) (tls.ClientHelloSpec, error)
+
 type ClientProfile struct {
+	quicClientHelloSpec QUICClientHelloFactory
+
 	chromeBehavior         bool // Deprecated API compatibility.
 	behavior               behavior.Policy
 	clientHelloId          tls.ClientHelloID
@@ -255,3 +262,11 @@ func (c ClientProfile) WithConnectionFlowSet(explicit bool) ClientProfile {
 	return c
 }
 func (c ClientProfile) GetConnectionFlowSet() bool { return c.connectionFlowSet }
+
+// WithQUICClientHelloSpec supplies the independent QUIC TLS mechanism selected by
+// quic.tls_source. The owner is responsible for immutable, concurrency-safe input.
+func (c ClientProfile) WithQUICClientHelloSpec(factory QUICClientHelloFactory) ClientProfile {
+	c.quicClientHelloSpec = factory
+	return c
+}
+func (c ClientProfile) GetQUICClientHelloSpec() QUICClientHelloFactory { return c.quicClientHelloSpec }

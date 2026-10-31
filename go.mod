@@ -18,7 +18,7 @@ require (
 	github.com/bdandy/go-errors v1.2.2 // indirect
 	github.com/cloudflare/circl v1.6.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/igor-lemon/utls v1.7.8-barnius.0.20261030155229-fc851fa265f6
+	github.com/igor-lemon/utls v1.7.8-barnius.0.20261031222600-bfb5cb3ef7ea
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

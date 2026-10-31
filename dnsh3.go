@@ -135,6 +135,7 @@ func (d *dnsH3) transport(rt *roundTripper) (*http3.Transport, error) {
 			chromeBehavior:         rt.chromeBehavior,
 			behavior:               rt.behavior.Clone(),
 			clientHelloID:          rt.clientHelloId,
+			quicClientHelloSpec:    rt.quicClientHelloSpec,
 			clientSessionCache:     rt.quicSessionCache,
 			insecureSkipVerify:     rt.insecureSkipVerify,
 			serverNameOverwrite:    rt.serverNameOverwrite,

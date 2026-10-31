@@ -14,7 +14,6 @@ import (
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/http2"
 	"github.com/igor-lemon/fhttp/http2/hpack"
-	quic "github.com/igor-lemon/quic-go-utls"
 	"github.com/igor-lemon/quic-go-utls/http3"
 	"github.com/igor-lemon/tls-client/bandwidth"
 	"github.com/igor-lemon/tls-client/profiles"
@@ -25,6 +24,7 @@ import (
 const defaultIdleConnectionTimeout = 90 * time.Second
 
 type roundTripper struct {
+	quicClientHelloSpec profiles.QUICClientHelloFactory
 	// apart is what a request starts that goes on after it: the connection
 	// of a race that lost, made for the session (dnsh3.go).
 	apart apartWork
@@ -152,6 +152,7 @@ type roundTripper struct {
 
 // http3Config contains all parameters needed to build an HTTP/3 transport
 type http3Config struct {
+	quicClientHelloSpec    profiles.QUICClientHelloFactory
 	clientHelloID          tls.ClientHelloID
 	chromeBehavior         bool
 	behavior               behavior.Policy
@@ -352,18 +353,28 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 		utlsConfig.Behavior = pol.Clone()
 		utlsConfig.QUICClientHelloSpec = profileQUICSpec(cfg.clientHelloID, pol)
 		t3.Dial = dialProfileQUIC
-		versions := []quic.Version{}
-		for _, v := range pol.Numbers("quic.versions") {
-			versions = append(versions, quic.Version(v))
-		}
+	}
+	if pol.Flag("quic.enabled") || pol.Has("quic.config") {
+		utlsConfig.Behavior = pol.Clone()
 		t3.EnableDatagrams = pol.Flag("quic.datagrams")
-		t3.QUICConfig = &quic.Config{Behavior: pol.Clone(), Versions: versions,
-			InitialStreamReceiveWindow: pol.Uint("quic.stream_receive_window"), MaxStreamReceiveWindow: pol.Uint("quic.stream_receive_window"),
-			InitialConnectionReceiveWindow: pol.Uint("quic.connection_receive_window"), MaxConnectionReceiveWindow: pol.Uint("quic.connection_receive_window"),
-			MaxIncomingStreams: int64(pol.Uint("quic.incoming_bidi_streams")), MaxIncomingUniStreams: int64(pol.Uint("quic.incoming_uni_streams")),
-			MaxIdleTimeout: time.Duration(pol.Uint("quic.idle_timeout_ms")) * time.Millisecond, InitialPacketSize: uint16(pol.Uint("quic.initial_packet_bytes")), EnableDatagrams: pol.Flag("quic.datagrams")}
+		t3.QUICConfig = profileQUICConfig(pol)
+		if pol.Has("quic.config") {
+			if pol.Flag("quic.dedicated_socket") {
+				t3.Dial = dialProfileQUIC
+			} else {
+				t3.Dial = nil
+			}
+		}
 	}
 
+	if pol.Text("quic.tls_source") == "independent" {
+		if cfg.quicClientHelloSpec == nil {
+			return nil, fmt.Errorf("independent QUIC TLS source requires a factory")
+		}
+		utlsConfig.QUICClientHelloSpec = cfg.quicClientHelloSpec
+	} else if cfg.quicClientHelloSpec != nil {
+		return nil, fmt.Errorf("QUIC TLS factory requires quic.tls_source independent")
+	}
 	if cfg.proxyURL != "" {
 		parsedURL, parseErr := url.Parse(cfg.proxyURL)
 		if parseErr != nil {
@@ -725,6 +736,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 			chromeBehavior:         rt.chromeBehavior,
 			behavior:               rt.behavior.Clone(),
 			clientHelloID:          rt.clientHelloId,
+			quicClientHelloSpec:    rt.quicClientHelloSpec,
 			clientSessionCache:     rt.quicSessionCache,
 			insecureSkipVerify:     rt.insecureSkipVerify,
 			serverNameOverwrite:    rt.serverNameOverwrite,
@@ -1155,6 +1167,9 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 	if err := pol.Validate(); err != nil {
 		return nil, err
 	}
+	if (pol.Text("quic.tls_source") == "independent") != (clientProfile.GetQUICClientHelloSpec() != nil) {
+		return nil, fmt.Errorf("independent QUIC TLS source and factory must be selected together")
+	}
 	pinner, err := NewCertificatePinner(certificatePins)
 	if err != nil {
 		return nil, fmt.Errorf("can not instantiate certificate pinner: %w", err)
@@ -1165,8 +1180,14 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 	withSessionResumption := !disableSessionTickets && supportsSessionResumption(clientProfile.GetClientHelloId())
 
 	if withSessionResumption {
-		clientSessionCache = tls.NewLRUClientSessionCache(32)
-		quicSessionCache = tls.NewLRUClientSessionCache(32)
+		clientSessionCache = profileSessionCache(pol, "tls.session_cache_entries")
+	}
+	withQUICSessionResumption := withSessionResumption
+	if pol.Has("quic.session_cache") {
+		withQUICSessionResumption = !disableSessionTickets && pol.Flag("quic.session_cache")
+	}
+	if withQUICSessionResumption {
+		quicSessionCache = profileSessionCache(pol, "quic.session_cache_entries")
 	}
 
 	rt := &roundTripper{
@@ -1201,6 +1222,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		connectionFlow:              clientProfile.GetConnectionFlow(),
 		connectionFlowSet:           clientProfile.GetConnectionFlowSet(),
 		clientHelloId:               clientProfile.GetClientHelloId(),
+		quicClientHelloSpec:         clientProfile.GetQUICClientHelloSpec(),
 		cachedTransports:            make(map[string]http.RoundTripper),
 		cachedConnections:           make(map[string]net.Conn),
 		stashedAt:                   make(map[string]time.Time),
@@ -1245,6 +1267,7 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		rt.racer.chromeBehavior = false
 		rt.racer.behavior = rt.behavior.Clone()
 		rt.racer.clientHelloID = rt.clientHelloId
+		rt.racer.quicClientHelloSpec = rt.quicClientHelloSpec
 	}
 
 	if len(dialer) > 0 {
