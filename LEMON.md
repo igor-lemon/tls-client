@@ -508,3 +508,11 @@ Alt-Svc routes as well as racing. Empty data must not inherit H1's response
 header limit. Browser values remain in JSON; no preset/name branch is added.
 The regression checks both the unconfigured legacy fallback and the configured
 empty case through actual HTTP/3 transport construction.
+
+## A13 independent QUIC transport and TLS
+
+Explicit QUIC config is independent of the legacy TCP TLS adapter. JSON owns
+initial/max receive windows, keepalive, stream limits and socket selection. An
+independent fresh hello factory reaches direct, racing and DNS H3; missing or
+conflicting selection fails before construction. TCP and QUIC cache selection
+and capacities are independent. Unconfigured low-level API compatibility stays.
