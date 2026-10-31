@@ -516,3 +516,14 @@ initial/max receive windows, keepalive, stream limits and socket selection. An
 independent fresh hello factory reaches direct, racing and DNS H3; missing or
 conflicting selection fails before construction. TCP and QUIC cache selection
 and capacities are independent. Unconfigured low-level API compatibility stays.
+
+## A13 owned H3 socket reservation
+
+The peer reserves UDP and the unavailable racing TCP endpoint as a pair before
+starting a request. Their independent ephemeral allocators can choose a TCP port
+already in use. Only setup EADDRINUSE releases the UDP socket and selects another
+pair, with a fixed bound; other errors fail immediately. No request is replayed.
+Original request/peer deadlines, SETTINGS bytes and zero-header-limit assertions
+remain unchanged. A forced collision/error/exhaustion control checks ownership.
+This fixes the independently observed bind collision, not the unexplained earlier
+coupled header-limit handshake timeout; that original refusal is retained.
