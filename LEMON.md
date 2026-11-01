@@ -527,3 +527,18 @@ Original request/peer deadlines, SETTINGS bytes and zero-header-limit assertions
 remain unchanged. A forced collision/error/exhaustion control checks ownership.
 This fixes the independently observed bind collision, not the unexplained earlier
 coupled header-limit handshake timeout; that original refusal is retained.
+
+## Coordinated explicit QUIC dependency (A13, 2026-11-01)
+
+Pin QUIC6f655a61, which implements the explicit transport layout consumed by
+this adapter. The previous standalone graph still selected2484971b: a JSON
+source CID length8 was present in Config but the actual shared UDP Initial
+carried4. Root's direct QUIC pin already avoided this mismatch; standalone
+users need the same implemented primitive.
+
+`TestHTTP3ExplicitSharedSourceCIDReachesWire` reads the original first datagram
+for1250/4 and1300/8 selections through the actual HTTP3 transport. It preserves
+header bounds and cancels/joins the silent-peer request. Before248 fails8;
+after6f passes32 fixed race repetitions. No browser values or runtime source
+files changed here; full source-pinned standalone/production acceptance is
+recorded separately by the owner's gate.
