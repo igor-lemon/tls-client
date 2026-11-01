@@ -11,6 +11,7 @@ import (
 	"time"
 
 	http "github.com/igor-lemon/fhttp"
+	"github.com/igor-lemon/quic-go-utls"
 	"github.com/igor-lemon/tls-client/profiles"
 	tls "github.com/igor-lemon/utls"
 	"golang.org/x/net/proxy"
@@ -18,7 +19,22 @@ import (
 
 type HttpClientOption func(config *httpClientConfig)
 
+// NetworkObserver observes actual connection activity without changing profile
+// data or wrapping response bodies. Callbacks must be concurrency-safe and return
+// promptly. TCPConnection
+// receives a new TCP socket before TLS or the built-in proxy handshake. Custom
+// dialers expose the connection they return; a tunnel may not expose kernel TCP.
+// QUIC events are measured datagram payload/RTT events; HTTP2RTT is a completed
+// connection-owned PING. Nil callbacks add no observation behavior.
+type NetworkObserver struct {
+	TCPConnection func(context.Context, net.Conn) net.Conn
+	QUIC          func(quic.NetworkEvent)
+	HTTP2RTT      func(net.Addr, time.Duration)
+}
+
 type TransportOptions struct {
+	NetworkObserver *NetworkObserver
+
 	// KeyLogWriter is an io.Writer that the TLS client will use to write the
 	// TLS master secrets to. This can be used to decrypt TLS connections in
 	// Wireshark and other applications.
@@ -289,7 +305,16 @@ func WithCatchPanics() HttpClientOption {
 // WithTransportOptions configures a client to use the specified transport options.
 func WithTransportOptions(transportOptions *TransportOptions) HttpClientOption {
 	return func(config *httpClientConfig) {
-		config.transportOptions = transportOptions
+		if transportOptions == nil {
+			config.transportOptions = nil
+			return
+		}
+		copied := *transportOptions
+		if copied.NetworkObserver != nil {
+			obs := *copied.NetworkObserver
+			copied.NetworkObserver = &obs
+		}
+		config.transportOptions = &copied
 	}
 }
 
@@ -487,5 +512,24 @@ func WithProxyConnWrapper(wrap ProxyConnWrapper) HttpClientOption {
 func WithDialContext(dialContext func(ctx context.Context, network, addr string) (net.Conn, error)) HttpClientOption {
 	return func(config *httpClientConfig) {
 		config.dialContext = dialContext
+	}
+}
+
+// WithNetworkObserver binds an observation sink after other transport options
+// without replacing their limits, roots or buffers. The caller's observer value
+// is snapshotted for this client. Owners may apply this last so an opaque
+// WithTransportOptions override cannot accidentally remove required observations.
+func WithNetworkObserver(observer *NetworkObserver) HttpClientOption {
+	return func(config *httpClientConfig) {
+		copied := TransportOptions{}
+		if config.transportOptions != nil {
+			copied = *config.transportOptions
+		}
+		copied.NetworkObserver = nil
+		if observer != nil {
+			sink := *observer
+			copied.NetworkObserver = &sink
+		}
+		config.transportOptions = &copied
 	}
 }
