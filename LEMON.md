@@ -551,3 +551,9 @@ recorded separately by the owner's gate.
   wrapper, browser-name dispatch, synthetic RTT or estimator default is added.
   Profile JSON in tls-forge owns selection, limits and generation rules. The
   standalone graph pins the published QUIC/fhttp/uTLS observation capabilities.
+
+- The observation proxy fixture uses the existing real CONNECT tunnel peer,
+  not the origin server as a stand-in proxy. The origin must receive GET, never
+  CONNECT, while the original exact socket count, receive-byte, body, snapshot
+  and composed-wrapper assertions remain. The rejected source-pinned run is
+  retained; this fixture correction changes no runtime or deadlines.
