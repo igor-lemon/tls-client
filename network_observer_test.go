@@ -28,7 +28,14 @@ func (c observedTCP) Read(b []byte) (int, error) {
 }
 
 func TestNetworkObserverReachesDirectAndProxySocketsOnce(t *testing.T) {
-	origin := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) { _, _ = io.WriteString(w, "ok") }))
+	origin := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != "GET" {
+			t.Errorf("origin received %s instead of tunneled GET", r.Method)
+			w.WriteHeader(405)
+			return
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
 	defer origin.Close()
 	for _, proxy := range []bool{false, true} {
 		t.Run(map[bool]string{false: "direct", true: "proxy"}[proxy], func(t *testing.T) {
@@ -42,7 +49,8 @@ func TestNetworkObserverReachesDirectAndProxySocketsOnce(t *testing.T) {
 			}}}
 			opts := []HttpClientOption{WithClientProfile(profiles.Chrome_133), WithForceHttp1(), WithTransportOptions(options)}
 			if proxy {
-				opts = append(opts, WithProxyUrl(origin.URL), WithProxyConnWrapper(func(ctx context.Context, c net.Conn, began time.Time) net.Conn { proxyTrace.Add(1); return c }))
+				proxyServer := connectProxy(t)
+				opts = append(opts, WithProxyUrl(proxyServer.URL), WithProxyConnWrapper(func(ctx context.Context, c net.Conn, began time.Time) net.Conn { proxyTrace.Add(1); return c }))
 			}
 			client, e := NewHttpClient(NewNoopLogger(), opts...)
 			if e != nil {
