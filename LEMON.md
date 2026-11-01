@@ -542,3 +542,12 @@ header bounds and cancels/joins the silent-peer request. Before248 fails8;
 after6f passes32 fixed race repetitions. No browser values or runtime source
 files changed here; full source-pinned standalone/production acceptance is
 recorded separately by the owner's gate.
+
+- Network-quality binding (A13, bounded network hints): WithNetworkObserver
+  snapshots a per-client sink without replacing other transport options. Actual
+  TCP sockets are observed once before TLS and built-in proxy handshakes; QUIC
+  datagram/RTT events reach all HTTP3 modes and actual H2 PING RTT is forwarded.
+  Generic callbacks are concurrent and must return promptly; no response body
+  wrapper, browser-name dispatch, synthetic RTT or estimator default is added.
+  Profile JSON in tls-forge owns selection, limits and generation rules. The
+  standalone graph pins the published QUIC/fhttp/uTLS observation capabilities.

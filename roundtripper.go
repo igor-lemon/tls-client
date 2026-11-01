@@ -16,6 +16,7 @@ import (
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/http2"
 	"github.com/igor-lemon/fhttp/http2/hpack"
+	quic "github.com/igor-lemon/quic-go-utls"
 	"github.com/igor-lemon/quic-go-utls/http3"
 	"github.com/igor-lemon/tls-client/bandwidth"
 	"github.com/igor-lemon/tls-client/profiles"
@@ -400,6 +401,15 @@ func buildHTTP3Transport(cfg *http3Config) (http.RoundTripper, error) {
 				t3.Dial = nil
 			}
 		}
+	}
+
+	if cfg.transportOptions != nil && cfg.transportOptions.NetworkObserver != nil && cfg.transportOptions.NetworkObserver.QUIC != nil {
+		if t3.QUICConfig == nil {
+			t3.QUICConfig = &quic.Config{}
+		} else {
+			t3.QUICConfig = t3.QUICConfig.Clone()
+		}
+		t3.QUICConfig.NetworkObserver = cfg.transportOptions.NetworkObserver.QUIC
 	}
 
 	if pol.Text("quic.tls_source") == "independent" {
@@ -947,6 +957,7 @@ func (rt *roundTripper) handshakeOffering(ctx context.Context, network, addr str
 		}
 	}
 
+	rawConn = rt.observeTCP(ctx, rawConn)
 	rawConn = rt.bandwidthTracker.TrackConnection(ctx, rawConn)
 
 	conn := tls.UClient(rawConn, tlsConfig, rt.clientHelloId, rt.withRandomTlsExtensionOrder, rt.forceHttp1, rt.disableHttp3)
@@ -1056,7 +1067,11 @@ func (rt *roundTripper) dial(ctx context.Context, network, addr string) (net.Con
 	if network == "tcp" && rt.disableIPV6 {
 		network = "tcp4"
 	}
-	return rt.dialer.DialContext(ctx, network, addr)
+	conn, err := rt.dialer.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	return rt.observeTCP(ctx, conn), nil
 }
 
 // idleTimeouts are how long an idle HTTP/1.1 and an idle HTTP/2 connection
@@ -1156,6 +1171,7 @@ func (rt *roundTripper) dialTLSForWebsocket(ctx context.Context, network, addr s
 		tlsConfig.Certificates = rt.transportOptions.Certificates
 	}
 
+	rawConn = rt.observeTCP(ctx, rawConn)
 	rawConn = rt.bandwidthTracker.TrackConnection(ctx, rawConn)
 
 	// Force HTTP/1.1 for WebSocket connections (WebSocket doesn't work over HTTP/2)
