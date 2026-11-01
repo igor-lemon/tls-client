@@ -557,3 +557,11 @@ recorded separately by the owner's gate.
   CONNECT, while the original exact socket count, receive-byte, body, snapshot
   and composed-wrapper assertions remain. The rejected source-pinned run is
   retained; this fixture correction changes no runtime or deadlines.
+
+- Native CI Alt-Svc fixture: a peer's completed QUIC handshake is not client
+  cache publication. The original TCP-wait/H2 policy assertions and exact one
+  TCP/one QUIC connection counts remain; the next-request case now requires
+  both sides ready within the original combined2+2second peer budget. A new
+  real-dial publication gate proves the former peer-only premise fails
+  deterministically, then checks H2 while unpublished and H3 after publication.
+  No request retries, added sleeps, runtime edits or failure allowances.

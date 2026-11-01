@@ -344,7 +344,7 @@ func TestAnAlternativeHoldsTCPBackWhateverConnectionTheOriginHasButHTTP2(t *test
 		if got := came(t, c, "https://"+o.addr+"/b"); got != want {
 			t.Errorf("TCP waits %v: the next came over %q, want %s", waits, got, want)
 		}
-		o.quicConn(t, 0)
+		altSvcReadyForNextRequest(t, c, o)
 		if got := came(t, c, "https://"+o.addr+"/c"); got != "HTTP/3.0" {
 			t.Errorf("TCP waits %v: the one after came over %q, want QUIC's", waits, got)
 		}
