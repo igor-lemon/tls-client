@@ -577,3 +577,13 @@ at once. Requires utls cc97026. Tests:
 `TestASessionCacheKeepsAsManySessionsAnEntryAsTheProfileSays`,
 `TestAClientsCachesKeepTheSessionsAnEntryTheirProfileSays` (`tls13Session`
 builds a TLS 1.3 session by utls's encoding); 4 mutants killed.
+
+## A forwarded request's Proxy-Connection from the profile (review 2026-11-05)
+
+An HTTP/1.1 request a proxy forwards (`proxy.forward_http`) says
+`Proxy-Connection` in Connection's place, as Chrome's
+HttpNetworkTransaction::BuildRequestHeaders writes it; its value is now the
+profile's `proxy.connection_value`, which tls-forge's CONNECT already took,
+and keep-alive where the profile says none, as before (it was keep-alive
+whatever the profile said). `forward_proxy_connection_test.go` (a proxy that
+reads the forwarded head; `forwardingDialer`); 3 mutants killed.

@@ -38,7 +38,10 @@ func (rt *roundTripper) forwardHTTPTransport() http.RoundTripper {
 	t.Proxy = http.ProxyURL(u)
 	t.DialContext = d.DialProxyContext
 	t.DialTLSContext = d.DialProxyContext
-	forward := forwardProxyTransport{Transport: t}
+	forward := forwardProxyTransport{Transport: t, connectionValue: "keep-alive"}
+	if rt.behavior.Has("proxy.connection_value") {
+		forward.connectionValue = rt.behavior.Text("proxy.connection_value")
+	}
 	if u.User != nil {
 		password, _ := u.User.Password()
 		forward.proxyAuth = "Basic " + base64.StdEncoding.EncodeToString([]byte(u.User.Username()+":"+password))
@@ -76,6 +79,11 @@ type forwardProxyTransport struct {
 	h2        *http2.Transport
 	proxyAuth string
 	shared    sharedForwardProxyDialer
+	// connectionValue is the Proxy-Connection an HTTP/1.1 request a proxy
+	// forwards says, in Connection's place, as Chrome's
+	// HttpNetworkTransaction::BuildRequestHeaders writes it: the profile's
+	// proxy.connection_value, keep-alive where it says none.
+	connectionValue string
 }
 
 type forwardProxyFailure struct{ err error }
@@ -115,7 +123,7 @@ func (t forwardProxyTransport) RoundTrip(req *http.Request) (*http.Response, err
 				delete(header, name)
 			}
 		}
-		header.Set("Proxy-Connection", "keep-alive")
+		header.Set("Proxy-Connection", t.connectionValue)
 		order := append([]string(nil), header[http.HeaderOrderKey]...)
 		found := false
 		for i, name := range order {
