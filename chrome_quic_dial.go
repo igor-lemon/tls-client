@@ -33,6 +33,7 @@ func (g profileQUICConnectionIDs) GenerateConnectionID() (quic.ConnectionID, err
 	return quic.ConnectionIDFromBytes(b), err
 }
 func dialProfileQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+	tlsCfg.SessionCacheKey = sessionCacheKey(cfg.Policy(), "quic.session_cache_key", addr)
 	remote, err := resolveUDPAddr(ctx, addr, nil)
 	if err != nil {
 		return nil, err

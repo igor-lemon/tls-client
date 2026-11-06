@@ -566,6 +566,21 @@ recorded separately by the owner's gate.
   deterministically, then checks H2 while unpublished and H3 after publication.
   No request retries, added sleeps, runtime edits or failure allowances.
 
+## Sessions kept by host and port, as the profile says (2026-11-06)
+
+`sessionCacheKey(policy, key, addr)` gives utls's `Config.SessionCacheKey`
+the dial's host and port where the profile says `tls.session_cache_key` or
+`quic.session_cache_key` is `host-port`, as Chromium's SSLClientSessionCache
+::Key and quiche's QuicServerId key them: every TCP dial's config
+(`handshakeOffering`, the websocket's) and every QUIC dial's (the profile's
+direct one, the record's or an alternative's, the origin's address in it, and
+through SOCKS5). Before, a ticket a server gave on one port was offered on any
+other of its name. Requires utls with `SessionCacheKey`.
+`session_cache_key_test.go`: two servers of one ticket key on two ports, the
+second resumed by name and not by host and port, through a request and a
+websocket's dial; every QUIC dial's key (its own, SOCKS5's, a record's of an
+alternative's port); 6 mutants killed.
+
 ## Sessions an entry of a cache, as the profile says (review 2026-11-05, 1.5)
 
 `profileSessionCache(p, entries, perEntry)` builds utls's
