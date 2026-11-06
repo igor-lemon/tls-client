@@ -2,11 +2,16 @@ package tls_client
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
 	"github.com/igor-lemon/quic-go-utls/http3"
 	"github.com/igor-lemon/tls-client/profiles"
 	tls "github.com/igor-lemon/utls"
 	"github.com/igor-lemon/utls/behavior"
+	"math/big"
 	"testing"
 	"time"
 )
@@ -132,7 +137,7 @@ func TestIndependentQUICFactorySelectionAndSessionOwnership(t *testing.T) {
 		}
 	}
 	// A one-entry JSON cache really evicts; capacity is not a write-only option.
-	cache := profileSessionCache(p, "quic.session_cache_entries")
+	cache := profileSessionCache(p, "quic.session_cache_entries", "quic.session_cache_sessions_per_entry")
 	a, b := &tls.ClientSessionState{}, &tls.ClientSessionState{}
 	cache.Put("a", a)
 	cache.Put("b", b)
@@ -147,5 +152,108 @@ func TestIndependentQUICFactorySelectionAndSessionOwnership(t *testing.T) {
 	}
 	if _, err := NewHttpClient(NewNoopLogger(), WithClientProfile(cp.WithBehavior(q))); err == nil {
 		t.Fatal("unselected factory accepted at constructor")
+	}
+}
+
+func TestASessionCacheKeepsAsManySessionsAnEntryAsTheProfileSays(t *testing.T) {
+	for _, tc := range []struct {
+		policy string
+		kept   int
+	}{
+		{`{"tls.session_cache_entries": 4, "tls.session_cache_sessions_per_entry": 2}`, 2},
+		{`{"tls.session_cache_entries": 4}`, 1},
+		{`{"tls.session_cache_sessions_per_entry": 2}`, 2},
+		{`{}`, 1},
+	} {
+		var p behavior.Policy
+		if err := json.Unmarshal([]byte(tc.policy), &p); err != nil {
+			t.Fatal(err)
+		}
+		cache := profileSessionCache(p, "tls.session_cache_entries", "tls.session_cache_sessions_per_entry")
+		taker := cache.(interface {
+			Take(string) (*tls.ClientSessionState, bool)
+		})
+		for range 3 {
+			cache.Put("a", tls13Session(t))
+		}
+		kept := 0
+		for {
+			if _, ok := taker.Take("a"); !ok {
+				break
+			}
+			kept++
+		}
+		if kept != tc.kept {
+			t.Errorf("%s: %d sessions kept, want %d", tc.policy, kept, tc.kept)
+		}
+	}
+}
+
+// tls13Session is a client's TLS 1.3 session of a self-signed certificate, as
+// the session encoding of utls reads one.
+func tls13Session(t *testing.T) *tls.ClientSessionState {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{SerialNumber: big.NewInt(1),
+		NotAfter: time.Now().Add(time.Hour)}, &x509.Certificate{SerialNumber: big.NewInt(1)}, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := []byte{0x03, 0x04, 2, 0x13, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 1, 7, 0, 0, 0, 0, 0}
+	entry := append([]byte{byte(len(der) >> 16), byte(len(der) >> 8), byte(len(der))}, der...)
+	entry = append(entry, 0, 0)
+	b = append(b, byte(len(entry)>>16), byte(len(entry)>>8), byte(len(entry)))
+	b = append(b, entry...)
+	b = append(b, 0, 0, 0)
+	b = append(b, make([]byte, 12)...)
+	state, err := tls.ParseSessionState(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := tls.NewResumptionState([]byte("ticket"), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func TestAClientsCachesKeepTheSessionsAnEntryTheirProfileSays(t *testing.T) {
+	// TCP's two a key, QUIC's three: each cache reads its own.
+	p := behavior.Generic()
+	p["tls.session_cache_entries"] = json.RawMessage("4")
+	p["tls.session_cache_sessions_per_entry"] = json.RawMessage("2")
+	p["quic.session_cache_entries"] = json.RawMessage("4")
+	p["quic.session_cache_sessions_per_entry"] = json.RawMessage("3")
+	client, err := NewHttpClient(NewNoopLogger(), WithClientProfile(profiles.Chrome_152_PSK.WithBehavior(p)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.CloseIdleConnections)
+	rt := client.(*httpClient).Transport.(*roundTripper)
+	if rt.clientSessionCache == nil || rt.quicSessionCache == nil {
+		t.Fatalf("no session caches: TCP %v, QUIC %v", rt.clientSessionCache != nil, rt.quicSessionCache != nil)
+	}
+	for name, tc := range map[string]struct {
+		cache tls.ClientSessionCache
+		kept  int
+	}{"TCP": {rt.clientSessionCache, 2}, "QUIC": {rt.quicSessionCache, 3}} {
+		for range 4 {
+			tc.cache.Put("a", tls13Session(t))
+		}
+		kept := 0
+		for {
+			if _, ok := tc.cache.(interface {
+				Take(string) (*tls.ClientSessionState, bool)
+			}).Take("a"); !ok {
+				break
+			}
+			kept++
+		}
+		if kept != tc.kept {
+			t.Errorf("%s: %d kept, want %d", name, kept, tc.kept)
+		}
 	}
 }

@@ -33,10 +33,14 @@ func profileQUICConfig(p behavior.Policy) *quic.Config {
 	return q
 }
 
-func profileSessionCache(p behavior.Policy, key string) tls.ClientSessionCache {
-	if p.Has(key) {
-		return tls.NewLRUClientSessionCache(p.Int(key))
-	}
+// profileSessionCache is a session cache of as many entries as key says, each
+// of as many sessions as perEntry says (one where it says none), as Chrome's
+// keep two: a server's second ticket for a second connection at once.
+func profileSessionCache(p behavior.Policy, key, perEntry string) tls.ClientSessionCache {
 	// Only unconfigured low-level callers retain the historical API contract.
-	return tls.NewLRUClientSessionCache(32)
+	capacity := 32
+	if p.Has(key) {
+		capacity = p.Int(key)
+	}
+	return tls.NewLRUClientSessionCacheOf(capacity, p.Int(perEntry))
 }
