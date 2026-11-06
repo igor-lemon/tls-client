@@ -153,10 +153,12 @@ github.com/igor-lemon/utls v1.7.8-barnius.0.20261101043215-2f8200b8a4aa h1:Kybld
 github.com/igor-lemon/utls v1.7.8-barnius.0.20261101043215-2f8200b8a4aa/go.mod h1:PBUuDfiLHP4IL5xJftjjw44xXfY2Pfe0BgYgsEcIc6M=
 github.com/igor-lemon/fhttp v0.6.10-0.20261106034415-2b67fc1ee17e h1:zIitUBZQw2g1h9EFsy19JWhBb2LVOkzECttA0fjs9MA=
 github.com/igor-lemon/fhttp v0.6.10-0.20261106034415-2b67fc1ee17e/go.mod h1:OhEISWmTJyk462YQ834+Beq6lw2m+5pEAeCf/qxYktI=
+github.com/igor-lemon/fhttp v0.6.10-0.20261106105301-64d6de4e4e13 h1:9g1fi58c6E88ghESPCwFApOGo3aaKQX8JNPf0Nr7g7M=
+github.com/igor-lemon/fhttp v0.6.10-0.20261106105301-64d6de4e4e13/go.mod h1:OhEISWmTJyk462YQ834+Beq6lw2m+5pEAeCf/qxYktI=
 github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261106040259-301d6b0ce994 h1:vcTlt81n9F+Ik/X3PV7HkM2n1GNGox6Svq6rHeSPn9I=
 github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261106040259-301d6b0ce994/go.mod h1:KegsDACd7xqrBntKAAiWhCJQ7/oCs385kkA1j3xPOSw=
-github.com/igor-lemon/utls v1.7.8-barnius.0.20261106034922-4b8e3e1fbd8d h1:hxJFGGgaQs36KJP3Sd9oTac8vpn8nyIa2664hTLC8RU=
-github.com/igor-lemon/utls v1.7.8-barnius.0.20261106034922-4b8e3e1fbd8d/go.mod h1:PBUuDfiLHP4IL5xJftjjw44xXfY2Pfe0BgYgsEcIc6M=
+github.com/igor-lemon/utls v1.7.8-barnius.0.20261106111523-61d479ef1205 h1:FUKn1jGltUkG/lzH4zJifKkcfhg+0WFtWHAuC+PIqF8=
+github.com/igor-lemon/utls v1.7.8-barnius.0.20261106111523-61d479ef1205/go.mod h1:PBUuDfiLHP4IL5xJftjjw44xXfY2Pfe0BgYgsEcIc6M=
 github.com/igor-lemon/websocket v1.5.6-barnius.0.20261026204638-961b3d7db465 h1:ftH9hfgmH7LsZgOP8jgk8H4M4ombvtFeXCbHqqbUZMY=
 github.com/igor-lemon/websocket v1.5.6-barnius.0.20261026204638-961b3d7db465/go.mod h1:GZSvScbWXPME/lrYX/6q6mWLv7EplqT8rW4mFYoWNJE=
 github.com/klauspost/compress v1.18.2 h1:iiPHWW0YrcFgpBYhsA6D1+fqHssJscY/Tm/y2Uqnapk=
