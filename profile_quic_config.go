@@ -44,3 +44,16 @@ func profileSessionCache(p behavior.Policy, key, perEntry string) tls.ClientSess
 	}
 	return tls.NewLRUClientSessionCacheOf(capacity, p.Int(perEntry))
 }
+
+// sessionCacheKey is the key a connection to addr keeps its sessions by,
+// where the profile's key says "host-port": the server's host and port, as
+// Chromium's SSLClientSessionCache::Key (its HostPortPair) and quiche's
+// QuicServerId key them, so that a ticket a server gave on one port is not
+// offered on another of its name. "" otherwise, and utls keys them by the
+// server name, as crypto/tls does.
+func sessionCacheKey(p behavior.Policy, key, addr string) string {
+	if p.Text(key) != "host-port" {
+		return ""
+	}
+	return addr
+}

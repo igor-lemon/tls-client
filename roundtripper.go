@@ -942,7 +942,8 @@ func (rt *roundTripper) handshakeOffering(ctx context.Context, network, addr str
 	}
 
 	tlsConfig := &tls.Config{ClientSessionCache: rt.clientSessionCache, ServerName: host, InsecureSkipVerify: rt.insecureSkipVerify, OmitEmptyPsk: true,
-		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, Behavior: rt.behavior.Clone()}
+		DynamicRecordSizingDisabled: rt.dynamicRecordSizingDisabled, FalseStart: rt.falseStart, Behavior: rt.behavior.Clone(),
+		SessionCacheKey: sessionCacheKey(rt.behavior, "tls.session_cache_key", addr)}
 	if rt.transportOptions != nil {
 		tlsConfig.RootCAs = rt.transportOptions.RootCAs
 		tlsConfig.KeyLogWriter = rt.transportOptions.KeyLogWriter
@@ -1159,6 +1160,7 @@ func (rt *roundTripper) dialTLSForWebsocket(ctx context.Context, network, addr s
 
 	tlsConfig := &tls.Config{
 		ClientSessionCache:          rt.clientSessionCache,
+		SessionCacheKey:             sessionCacheKey(rt.behavior, "tls.session_cache_key", addr),
 		ServerName:                  host,
 		InsecureSkipVerify:          rt.insecureSkipVerify,
 		OmitEmptyPsk:                true,

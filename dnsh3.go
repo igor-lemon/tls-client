@@ -193,6 +193,9 @@ func (d *dnsH3) dial(rt *roundTripper) func(context.Context, string, *tls.Config
 			port = p
 		}
 		remote := net.UDPAddrFromAddrPort(netip.AddrPortFrom(a.endpoint.Addrs[0].Unmap(), uint16(port)))
+		// The origin's host and port, an alternative's too: quiche's
+		// QuicServerId is the origin's.
+		tlsCfg.SessionCacheKey = sessionCacheKey(cfg.Policy(), "quic.session_cache_key", addr)
 		// A refusal fails the connection whatever its certificate says, and
 		// the request goes over TCP: QUIC offers ECH once.
 		if len(a.endpoint.ECH) > 0 {

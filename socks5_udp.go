@@ -543,6 +543,7 @@ func decodeSocks5UDPHeader(data []byte) (addr *net.UDPAddr, dataOffset int, err 
 // that tunnels QUIC traffic through a SOCKS5 proxy's UDP ASSOCIATE relay.
 func newSOCKS5QUICDialer(proxyURL string) func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
 	return func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+		tlsCfg.SessionCacheKey = sessionCacheKey(cfg.Policy(), "quic.session_cache_key", addr)
 		proxyAddr, auth, err := parseSOCKS5ProxyURL(proxyURL)
 		if err != nil {
 			return nil, fmt.Errorf("socks5 quic dialer: %w", err)
