@@ -1199,14 +1199,14 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 	withSessionResumption := !disableSessionTickets && supportsSessionResumption(clientProfile.GetClientHelloId())
 
 	if withSessionResumption {
-		clientSessionCache = profileSessionCache(pol, "tls.session_cache_entries")
+		clientSessionCache = profileSessionCache(pol, "tls.session_cache_entries", "tls.session_cache_sessions_per_entry")
 	}
 	withQUICSessionResumption := withSessionResumption
 	if pol.Has("quic.session_cache") {
 		withQUICSessionResumption = !disableSessionTickets && pol.Flag("quic.session_cache")
 	}
 	if withQUICSessionResumption {
-		quicSessionCache = profileSessionCache(pol, "quic.session_cache_entries")
+		quicSessionCache = profileSessionCache(pol, "quic.session_cache_entries", "quic.session_cache_sessions_per_entry")
 	}
 
 	rt := &roundTripper{

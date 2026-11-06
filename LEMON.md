@@ -565,3 +565,15 @@ recorded separately by the owner's gate.
   real-dial publication gate proves the former peer-only premise fails
   deterministically, then checks H2 while unpublished and H3 after publication.
   No request retries, added sleeps, runtime edits or failure allowances.
+
+## Sessions an entry of a cache, as the profile says (review 2026-11-05, 1.5)
+
+`profileSessionCache(p, entries, perEntry)` builds utls's
+`NewLRUClientSessionCacheOf` of `tls.session_cache_sessions_per_entry` for the
+TCP cache and `quic.session_cache_sessions_per_entry` for QUIC's, one where the
+profile says none: Chrome's caches keep two (SSLClientSessionCache, quiche's
+QuicClientSessionCache), so a server's second ticket serves a second connection
+at once. Requires utls cc97026. Tests:
+`TestASessionCacheKeepsAsManySessionsAnEntryAsTheProfileSays`,
+`TestAClientsCachesKeepTheSessionsAnEntryTheirProfileSays` (`tls13Session`
+builds a TLS 1.3 session by utls's encoding); 4 mutants killed.
