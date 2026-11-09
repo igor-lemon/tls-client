@@ -11,7 +11,6 @@ import (
 	"github.com/igor-lemon/tls-client/profiles"
 
 	http "github.com/igor-lemon/fhttp"
-	"github.com/igor-lemon/fhttp/httptest"
 	tls_client "github.com/igor-lemon/tls-client"
 	"github.com/stretchr/testify/assert"
 )

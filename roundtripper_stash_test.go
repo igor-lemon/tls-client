@@ -216,16 +216,20 @@ func TestASetupDialClosesAStaleStash(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// [tls-client fork] getTransport says only whether it set up a transport;
+	// what it leaves stashed is the connection the transport's first dial
+	// takes.
 	rt.cachedTransportsLck.Lock()
-	conn, err := rt.getTransport(req, addr)
+	err = rt.getTransport(req, addr)
 	rt.cachedTransportsLck.Unlock()
 	if err != nil {
 		t.Fatalf("getTransport: %v", err)
 	}
-	defer conn.Close()
-
-	if conn == stale {
-		t.Fatal("the setup dial returned the stale stashed connection")
+	rt.Lock()
+	handed := rt.cachedConnections[addr]
+	rt.Unlock()
+	if handed == stale {
+		t.Fatal("the setup dial left the stale stashed connection for the transport")
 	}
 	if _, err := peer.Write([]byte{0}); err == nil {
 		t.Error("the stale stashed connection was not closed")

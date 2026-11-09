@@ -44,7 +44,8 @@ func profileQUICSpec(id tls.ClientHelloID, pol behavior.Policy) func([]byte) (tl
 				continue
 			}
 			switch e := ext.(type) {
-			case *tls.SNIExtension, *tls.GREASEEncryptedClientHelloExtension, *tls.UtlsCompressCertExtension, *tls.PSKKeyExchangeModesExtension:
+			case *tls.SNIExtension, *tls.GREASEEncryptedClientHelloExtension, *tls.UtlsCompressCertExtension, *tls.PSKKeyExchangeModesExtension,
+				*tls.TrustAnchorsExtension:
 			case *tls.GenericExtension:
 				if !slices.Contains(pol.Numbers("quic.preserve_extensions"), uint64(e.Id)) {
 					continue
@@ -120,6 +121,9 @@ func quicExtensionID(ext tls.TLSExtension) uint64 {
 		return 45
 	case *tls.GenericExtension:
 		return uint64(e.Id)
+	case *tls.TrustAnchorsExtension:
+		// what utls makes of trust_anchors since v1.8.2
+		return 51764
 	case *tls.SupportedCurvesExtension:
 		return 10
 	case *tls.SignatureAlgorithmsExtension:

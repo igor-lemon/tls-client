@@ -165,7 +165,7 @@ func (d *echDialer) DialContext(ctx context.Context, network, _ string) (net.Con
 func (s *echSite) handshake(t *testing.T, d *echDialer, policy behavior.Policy, insecure bool) (*tls.UConn, error) {
 	t.Helper()
 	rt, err := newRoundTripper(profiles.Chrome_133.WithBehavior(policy), &TransportOptions{RootCAs: s.roots}, "", insecure,
-		false, false, false, false, false, nil, nil, false, false, bandwidth.NewNopeTracker(), "", d)
+		false, false, false, false, false, nil, nil, nil, false, false, bandwidth.NewNopeTracker(), "", 0, d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestAnOfferAgainIsMadeWithinItsRequestsTime(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &cancelling{echDialer: echDialer{site: s.addr, configs: echList(s.old)}, cancel: cancel}
 	rt, err := newRoundTripper(profiles.Chrome_133.WithBehavior(echPolicy(t, nil)), &TransportOptions{RootCAs: s.roots}, "",
-		false, false, false, false, false, false, nil, nil, false, false, bandwidth.NewNopeTracker(), "", d)
+		false, false, false, false, false, false, nil, nil, nil, false, false, bandwidth.NewNopeTracker(), "", 0, d)
 	if err != nil {
 		t.Fatal(err)
 	}

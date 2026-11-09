@@ -123,7 +123,7 @@ func TestAConnectionLeftForTheNextSetupHasItsTicketCached(t *testing.T) {
 		}
 	}()
 	raw, err := newRoundTripper(profiles.Chrome_133_PSK, nil, "", true, false, false, false, false, false,
-		nil, nil, false, false, bandwidth.NewNopeTracker(), "", &net.Dialer{})
+		nil, nil, nil, false, false, bandwidth.NewNopeTracker(), "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func (r *countingReaper) ReapIdleConns() { r.reaps.Add(1) }
 
 func TestReapingPassesOverTheAddressWhoseRequestGoes(t *testing.T) {
 	raw, err := newRoundTripper(profiles.Chrome_133.WithBehavior(dnsH3Policy(t, map[string]string{"http.unused_idle_connection_timeout_ms": "1"})),
-		nil, "", true, false, false, false, false, false, nil, nil, false, false, bandwidth.NewNopeTracker(), "", &net.Dialer{})
+		nil, "", true, false, false, false, false, false, nil, nil, nil, false, false, bandwidth.NewNopeTracker(), "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func tcpPair(t *testing.T) (net.Conn, net.Conn) {
 
 func TestAConnectionThatWaitsIsLetGoOfOnceItsServerClosedIt(t *testing.T) {
 	raw, err := newRoundTripper(profiles.Chrome_133.WithBehavior(dnsH3Policy(t, nil)),
-		nil, "", true, false, false, false, false, false, nil, nil, false, false, bandwidth.NewNopeTracker(), "", &net.Dialer{})
+		nil, "", true, false, false, false, false, false, nil, nil, nil, false, false, bandwidth.NewNopeTracker(), "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}

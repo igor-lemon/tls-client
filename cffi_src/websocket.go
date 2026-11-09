@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	http "github.com/igor-lemon/fhttp"
 	tls_client "github.com/igor-lemon/tls-client"
 	"github.com/igor-lemon/websocket"
+	"github.com/google/uuid"
 )
 
 // wsConnections maps connectionId -> *wsConn.

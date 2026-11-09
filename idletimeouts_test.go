@@ -29,7 +29,7 @@ func TestTheTransportsKeepIdleConnectionsAsTheirOptionsSay(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, err := newRoundTripper(profiles.Chrome_133, tc.options, "", true, false, false, false, false, false,
-				nil, nil, false, false, bandwidth.NewNopeTracker(), "", &net.Dialer{})
+				nil, nil, nil, false, false, bandwidth.NewNopeTracker(), "", 0, &net.Dialer{})
 			if err != nil {
 				t.Fatal(err)
 			}

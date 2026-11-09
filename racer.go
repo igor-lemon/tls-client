@@ -229,9 +229,9 @@ func (pr *protocolRacer) clearProtocolCache(addr string) {
 	pr.protocolCacheMu.Unlock()
 }
 
-func (pr *protocolRacer) cacheWinningProtocol(addr string, winner racingResult) {
+func (pr *protocolRacer) cacheWinningProtocol(addr, protocol string) {
 	pr.protocolCacheMu.Lock()
-	pr.protocolCache[addr] = winner.protocol
+	pr.protocolCache[addr] = protocol
 	pr.protocolCacheMu.Unlock()
 
 }

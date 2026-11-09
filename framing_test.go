@@ -9,7 +9,7 @@ import (
 
 func TestTheRoundTripperTakesHowItsProfileFramesAndRecords(t *testing.T) {
 	rt, err := newRoundTripper(profiles.Chrome_133.WithMaxDataFramePayload(16375).WithDynamicRecordSizingDisabled(true), nil,
-		"", false, false, false, false, false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+		"", false, false, false, false, false, false, nil, nil, nil, false, false, nil, "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestTheRoundTripperTakesHowItsProfileFramesAndRecords(t *testing.T) {
 func TestTheHTTP1TransportWritesAsItsProfileSays(t *testing.T) {
 	for _, limit := range []int{0, 1400} {
 		rt, err := newRoundTripper(profiles.Chrome_133.WithMaxMergedHeadAndBody(limit), nil,
-			"", false, false, false, false, false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+			"", false, false, false, false, false, false, nil, nil, nil, false, false, nil, "", 0, &net.Dialer{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -34,7 +34,7 @@ func TestTheHTTP1TransportWritesAsItsProfileSays(t *testing.T) {
 func TestTheRoundTripperWaitsForAStreamAsItsProfileSays(t *testing.T) {
 	for _, strict := range []bool{false, true} {
 		rt, err := newRoundTripper(profiles.Chrome_133.WithStrictMaxConcurrentStreams(strict), nil,
-			"", false, false, false, false, false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+			"", false, false, false, false, false, false, nil, nil, nil, false, false, nil, "", 0, &net.Dialer{})
 		if err != nil {
 			t.Fatal(err)
 		}

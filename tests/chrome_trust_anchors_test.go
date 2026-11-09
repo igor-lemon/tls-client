@@ -23,10 +23,6 @@ import (
 // trustAnchorsExtension is the code point of the trust_anchors extension.
 const trustAnchorsExtension = 0xca34
 
-// generate204Endpoint answers with 204 and an empty body. Google runs the TLS
-// trust anchor IDs draft, so it reads the extension instead of skipping it.
-const generate204Endpoint = "https://www.google.com/generate_204"
-
 // chromeProfile is the profile these tests use. Every Chrome profile hands
 // the extension the same bytes, so one covers them all. This one is the newest,
 // so it is the wiring most likely to be wrong.
@@ -48,8 +44,6 @@ const chromeRootStore39Capture = "00b80582df13020108839a648c9b2d010c08839a648c9b
 const chromeListPath = "../trust_anchors/chrome_generated.go"
 
 var chromeCaptureField = regexp.MustCompile(`chromeCapture = "([0-9a-f]+)"`)
-
-var chromeVersionField = regexp.MustCompile(`// Chrome Root Store version: (\d+)`)
 
 // chromeCapture reads the payload every Chrome profile must send from the
 // generated list, so no copy of it lives in this file.
@@ -195,6 +189,8 @@ func TestChromeTrustAnchors(t *testing.T) {
 // payload survives the handshake and that the JA4 fingerprint does not move
 // with it.
 func TestChromeTrustAnchorsOnTheWire(t *testing.T) {
+	// [tls-client fork] an owned peer, not tls.peet.ws: tests reach no network.
+	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	capture := chromeCapture(t)
 
 	var ja4Values []string
@@ -203,6 +199,7 @@ func TestChromeTrustAnchorsOnTheWire(t *testing.T) {
 		t.Run(fmt.Sprintf("run_%d", run), func(t *testing.T) {
 			options := []tls_client.HttpClientOption{
 				skipPeetCertVerify,
+				tls_client.WithServerNameOverwrite("owned.example"),
 				tls_client.WithClientProfile(chromeProfile),
 				tls_client.WithTimeoutSeconds(120),
 			}
@@ -211,6 +208,7 @@ func TestChromeTrustAnchorsOnTheWire(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Cleanup(client.CloseIdleConnections)
 
 			req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
 			if err != nil {
@@ -290,13 +288,18 @@ func TestChromeTrustAnchorsOnTheWire(t *testing.T) {
 // the list falls back to its normal certificate and still answers 204. The tests
 // above cover the IDs.
 func TestChromeTrustAnchorsAreAcceptedByAServer(t *testing.T) {
+	// [tls-client fork] an owned verifying peer, not Google's: tests reach no
+	// network.
+	generate204Endpoint, roots := newOwnedVerifiedTLSPeer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	client, err := tls_client.NewHttpClient(nil,
 		tls_client.WithClientProfile(chromeProfile),
 		tls_client.WithTimeoutSeconds(30),
+		tls_client.WithTransportOptions(&tls_client.TransportOptions{RootCAs: roots}),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.CloseIdleConnections)
 
 	req, err := http.NewRequest(http.MethodGet, generate204Endpoint, nil)
 	if err != nil {
@@ -321,147 +324,9 @@ func TestChromeTrustAnchorsAreAcceptedByAServer(t *testing.T) {
 	}
 }
 
-// TestChromeTrustAnchorsMatchUpstream runs the generator against the Chrome Root Store
-// and compares its output with the committed list. It fails when Chromium
-// changed the anchor IDs in the store, and when somebody changed the profiles
-// without running the generator again.
-//
-// A new store version that only reorders the same IDs does not fail the test,
-// because the profiles draw their own order anyway.
-//
-// The failure is not a defect of this package. The message names the steps.
-func TestChromeTrustAnchorsMatchUpstream(t *testing.T) {
-	fresh := filepath.Join(t.TempDir(), "chrome_trust_anchors_generated.go")
-
-	cmd := exec.Command("go", "run", "gen_chrome.go", "-out", fresh)
-	cmd.Dir = "../trust_anchors"
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("the generator failed: %s: %s", err, out)
-	}
-
-	want, err := os.ReadFile(chromeListPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := os.ReadFile(fresh)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if string(got) == string(want) {
-		return
-	}
-
-	differences := listDifference(t, want, got)
-	if len(differences) == 0 {
-		t.Logf("the Chrome Root Store is at version %s, the committed list at version %s, both hold the same IDs in another order",
-			storeVersion(got), storeVersion(want))
-
-		return
-	}
-
-	t.Errorf(`the Chrome Root Store is at version %s and no longer matches %s.
-
-Do these steps:
-1. Run "go generate ./trust_anchors".
-2. Commit %s.
-3. Name store version %s in the commit message.
-
-Change nothing else. Do not touch testdata/chrome_root_store_v39.pb or
-chromeRootStore39Capture. Those hold Chrome Root Store 39 and they must stay at
-that version, because TestChromeTrustAnchorsSelectionRule needs a frozen input and a
-frozen result.
-
-Step 2 makes every Chrome profile advertise the new list.
-
-committed:
-%s
-
-upstream:
-%s
-%s`,
-		storeVersion(got), chromeListPath, chromeListPath, storeVersion(got),
-		header(want), header(got), strings.Join(differences, "\n"))
-}
-
-// listDifference names the IDs the two lists do not share. Two headers can read
-// the same while the lists differ, so the message must name them. An empty
-// result means both lists hold the same IDs.
-func listDifference(t *testing.T, want, got []byte) []string {
-	t.Helper()
-
-	ids := func(source []byte) map[string]bool {
-		match := chromeCaptureField.FindSubmatch(source)
-		if match == nil {
-			return nil
-		}
-
-		payload, err := hex.DecodeString(string(match[1]))
-		if err != nil {
-			return nil
-		}
-
-		out := map[string]bool{}
-		for _, id := range splitTrustAnchors(t, payload) {
-			out[id] = true
-		}
-
-		return out
-	}
-
-	committed, upstream := ids(want), ids(got)
-
-	var only []string
-
-	for id := range committed {
-		if !upstream[id] {
-			only = append(only, "only in the committed list: "+id)
-		}
-	}
-
-	for id := range upstream {
-		if !committed[id] {
-			only = append(only, "only upstream: "+id)
-		}
-	}
-
-	sort.Strings(only)
-
-	return only
-}
-
-// storeVersion returns the Chrome Root Store version a generated list names.
-func storeVersion(source []byte) string {
-	match := chromeVersionField.FindSubmatch(source)
-	if match == nil {
-		return "unknown"
-	}
-
-	return string(match[1])
-}
-
-// header returns the part of the comment block that can move: the blob, the
-// store version, and the anchor count. The "Code generated" and "Source" lines
-// read the same in every list, so they stay out of the message.
-func header(source []byte) string {
-	var kept []string
-
-	for _, line := range strings.Split(string(source), "\n") {
-		if !strings.HasPrefix(line, "//") {
-			break
-		}
-
-		if strings.HasPrefix(line, "// Code generated") || strings.HasPrefix(line, "// Source:") {
-			continue
-		}
-
-		kept = append(kept, line)
-	}
-
-	return strings.Join(kept, "\n")
-}
+// [tls-client fork] TestChromeTrustAnchorsMatchUpstream, which runs the
+// generator against the live Chrome Root Store, is left out: tests reach no
+// network. `go generate ./trust_anchors` refreshes the list.
 
 // TestChromeTrustAnchorsSelectionRule checks which fields the generator keeps:
 // every trust_anchors entry, and an additional_certs entry only with

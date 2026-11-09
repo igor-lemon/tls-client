@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"fmt"
 	http "github.com/igor-lemon/fhttp"
 	"github.com/igor-lemon/fhttp/httptest"
 	tls_client "github.com/igor-lemon/tls-client"
@@ -26,6 +27,30 @@ func TestWeb(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	t.Cleanup(func() { require.EqualValues(t, 1, requests.Load()) })
+	options := []tls_client.HttpClientOption{
+		tls_client.WithClientProfile(profiles.Firefox_110),
+		tls_client.WithTransportOptions(&tls_client.TransportOptions{RootCAs: roots}),
+	}
+
+	client, err := tls_client.NewHttpClient(nil, options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(client.CloseIdleConnections)
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req.Header = defaultHeader
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+}
+
 // TestFirefoxHandshakeWithGroupWithoutKeyShare connects with Firefox_110 to a
 // server that only accepts P-384. Firefox lists P-384 in supported_groups next
 // to the FFDHE groups, but sends key shares for X25519 and P-256 only, so the

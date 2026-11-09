@@ -11,7 +11,7 @@ import (
 func TestTheRoundTripperWritesHeadersAsItsProfileSays(t *testing.T) {
 	of := func(hpack.HeaderField) hpack.Representation { return hpack.Representation{FirstStaticName: true} }
 	rt, err := newRoundTripper(profiles.Chrome_133.WithHeaderRepresentation(of), nil, "", false, false, false, false,
-		false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+		false, false, nil, nil, nil, false, false, nil, "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestTheRoundTripperWritesHeadersAsItsProfileSays(t *testing.T) {
 
 func TestTheRoundTripperTakesItsProfilesEncoderTableLimit(t *testing.T) {
 	rt, err := newRoundTripper(profiles.Chrome_133.WithMaxEncoderHeaderTableSize(1<<20), nil, "", false, false, false, false,
-		false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+		false, false, nil, nil, nil, false, false, nil, "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}

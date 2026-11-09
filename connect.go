@@ -370,8 +370,6 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 			_ = rawConn.Close()
 			return nil, err
 		}
-		// And no longer than the request is wanted.
-		stop := context.AfterFunc(ctx, func() { _ = rawConn.SetDeadline(time.Now()) })
 
 		// Abort when ctx is cancelled.
 		stop := context.AfterFunc(ctx, func() { _ = rawConn.SetDeadline(time.Now()) })
@@ -411,9 +409,6 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 			return nil, ctx.Err()
 		}
 
-		// A request let go of as the proxy answered may find the deadline
-		// past: it is no longer wanted.
-		stop()
 		rawConn.SetDeadline(time.Time{})
 
 		return rawConn, nil
@@ -464,10 +459,10 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 				NextProtos: []string{"h2", "http/1.1"},
 				ServerName: c.ProxyUrl.Hostname(),
 			}
-			// As tls.Dialer dials with no dialer of its own, the TCP
-			// connection through the wrapper.
+			// The TCP connection with the client's dialer (upstream #292),
+			// through the wrapper.
 			began := time.Now()
-			var tcp net.Dialer
+			tcp := c.Dialer
 			dialed, err := tcp.DialContext(ctx, network, c.ProxyUrl.Host)
 			if err != nil {
 				return nil, err

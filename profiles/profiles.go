@@ -254,12 +254,6 @@ func (c ClientProfile) WithHTTP3Parameters(settings map[uint64]uint64, order []u
 	c.http3PriorityParam = priority
 	c.http3SendGreaseFrames = grease
 	return c
-// BuildTrustAnchorsPayload turns a captured trust_anchors payload into the data
-// for the extension.
-//
-// Deprecated: use trust_anchors.BuildPayload
-func BuildTrustAnchorsPayload(capture string) ([]byte, error) {
-	return trust_anchors.BuildPayload(capture)
 }
 
 // WithConnectionFlowSet marks the connection increment as explicit, including
@@ -277,3 +271,11 @@ func (c ClientProfile) WithQUICClientHelloSpec(factory QUICClientHelloFactory) C
 	return c
 }
 func (c ClientProfile) GetQUICClientHelloSpec() QUICClientHelloFactory { return c.quicClientHelloSpec }
+
+// BuildTrustAnchorsPayload turns a captured trust_anchors payload into the data
+// for the extension.
+//
+// Deprecated: use trust_anchors.BuildPayload
+func BuildTrustAnchorsPayload(capture string) ([]byte, error) {
+	return trust_anchors.BuildPayload(capture)
+}

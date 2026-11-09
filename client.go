@@ -327,6 +327,14 @@ func (c *httpClient) ReapIdleConnectionsBut(addr string) {
 	c.built.ReapIdleConnectionsBut(addr)
 }
 
+// Close releases all connections and transports of the client, including the
+// UDP sockets of HTTP/3 transports which CloseIdleConnections keeps open.
+// The client stays usable and builds new transports on the next request.
+func (c *httpClient) Close() {
+	// The round tripper the client built, whatever wraps it.
+	c.built.Close()
+}
+
 // GetDialer() returns the underlying Dialer
 func (c *httpClient) GetDialer() proxy.ContextDialer {
 	return c.dialer

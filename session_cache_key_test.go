@@ -146,7 +146,7 @@ func TestAWebsocketsSessionIsKeptByHostAndPortWhereTheProfileSays(t *testing.T) 
 		p := behavior.Generic()
 		p["tls.session_cache_key"] = json.RawMessage(`"` + tc.key + `"`)
 		made, err := newRoundTripper(profiles.Chrome_152_PSK.WithBehavior(p), nil, "", true, false, false, false, false, false,
-			nil, nil, false, false, bandwidth.NewNopeTracker(), "", &net.Dialer{})
+			nil, nil, nil, false, false, bandwidth.NewNopeTracker(), "", 0, &net.Dialer{})
 		if err != nil {
 			t.Fatal(err)
 		}

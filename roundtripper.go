@@ -113,10 +113,6 @@ type roundTripper struct {
 	disableHttp3 bool
 	proxyURL     string
 
-	// http2RedialTimeout bounds a dial the HTTP/2 transport makes on its own,
-	// which carries no request context. See dialTLSHTTP2.
-	http2RedialTimeout time.Duration
-
 	// racer handles HTTP/3 racing (nil if racing is disabled)
 	racer *protocolRacer
 
@@ -308,10 +304,15 @@ func (rt *roundTripper) CloseIdleConnections() {
 	}
 }
 
-// Close closes and forgets every cached transport. CloseIdleConnections is not
-// enough for HTTP/3: an HTTP/3 transport owns a UDP socket and the goroutines
-// reading it, and only Close releases them.
+// Close closes and forgets every transport cached, after what
+// CloseIdleConnections lets go of: an HTTP/3 transport owns a UDP socket and
+// the goroutines reading it, which only its Close releases (upstream da88afc).
+// The record's HTTP/3 transport (dnsH3) dials a socket for each connection,
+// which goes with it. The round tripper stays usable and builds new
+// transports on the next request.
 func (rt *roundTripper) Close() {
+	rt.CloseIdleConnections()
+
 	rt.cachedTransportsLck.Lock()
 	defer rt.cachedTransportsLck.Unlock()
 
@@ -511,10 +512,7 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	if rt.racer != nil && !rt.forceHttp1 && !rt.disableHttp3 && strings.ToLower(req.URL.Scheme) == "https" {
-		return rt.racer.race(req, addr, func(req *http.Request, addr string) error {
-			_, err := rt.getTransport(req, addr)
-			return err
-		})
+		return rt.racer.race(req, addr, rt.getTransport)
 	}
 
 	// A connection dialed for the request spoke another protocol than the
@@ -532,6 +530,9 @@ const protocolChanges = 3
 // roundTrip sends req to addr once: on a connection of a host it may share
 // one with, or by the transport cached for addr, set up when there is none.
 func (rt *roundTripper) roundTrip(req *http.Request, addr string) (*http.Response, error) {
+	// mine is the connection this request's setup stashed for its transport's
+	// first dial.
+	var mine net.Conn
 	for {
 		rt.cachedTransportsLck.Lock()
 		if shared := rt.shared; shared != nil && rt.cachedTransports[addr] == nil && strings.ToLower(req.URL.Scheme) == "https" {
@@ -545,6 +546,9 @@ func (rt *roundTripper) roundTrip(req *http.Request, addr string) (*http.Respons
 			rt.cachedTransportsLck.Unlock()
 
 			resp, err := t.RoundTrip(req)
+			if mine != nil {
+				rt.discardStash(addr, mine)
+			}
 			if err != nil && errors.Is(err, errProtocolChanged) {
 				rt.dropCachedTransport(addr, t)
 			}
@@ -575,13 +579,36 @@ func (rt *roundTripper) roundTrip(req *http.Request, addr string) (*http.Respons
 			}
 		}
 
-		if err := rt.setUp(req, addr, s); err != nil {
+		stashed, err := rt.setUp(req, addr, s)
+		if err != nil {
 			if errors.Is(err, ErrBadPinDetected) && rt.badPinHandlerFunc != nil {
 				rt.badPinHandlerFunc(req)
 			}
 
 			return nil, err
 		}
+		mine = stashed
+	}
+}
+
+// discardStash lets go of conn, which a request's setup stashed for its
+// transport's first dial, when that dial never took it: the transport refused
+// the request before dialing (upstream #291). Left, it would serve a later
+// request after the server closed it, and a server's close_notify waiting in
+// the socket reads as a live connection to connected's peek.
+func (rt *roundTripper) discardStash(addr string, conn net.Conn) {
+	rt.Lock()
+	defer rt.Unlock()
+
+	if rt.cachedConnections[addr] != conn {
+		return
+	}
+	delete(rt.cachedConnections, addr)
+	delete(rt.stashedAt, addr)
+	delete(rt.unusedStash, addr)
+	rt.stashed.Delete(addr)
+	rt.letGo(conn)
+}
 
 // setup is a first dial for an address, which the requests to it wait for.
 type setup struct {
@@ -597,18 +624,35 @@ var (
 	reconnected     = func(addr string) {}
 	dropping        = func(addr string) {}
 )
+
+// setUp sets up the transport for addr, and caches it, holding
+// cachedTransportsLck only to cache it: the dial that finds out what the
+// server speaks holds no lock, and other addresses go on. s is closed once
+// it is done, whatever came of it.
+func (rt *roundTripper) setUp(req *http.Request, addr string, s *setup) (net.Conn, error) {
+	// The requests waiting for this setup are let go of however it ends, a
+	// dialer's panic included (upstream #291): left, they waited for good.
+	defer func() {
+		rt.cachedTransportsLck.Lock()
+		delete(rt.setups, addr)
+		rt.cachedTransportsLck.Unlock()
+		close(s.done)
+	}()
+
+	conn, err := rt.discover(req, addr)
+	if err != nil {
 		return nil, err
 	}
 
-	resp, err := t.RoundTrip(req)
-	if err != nil && errors.Is(err, errProtocolChanged) {
-		rt.dropCachedTransport(addr, t)
+	rt.cachedTransportsLck.Lock()
+	defer rt.cachedTransportsLck.Unlock()
+	if err := rt.cache(addr, conn); err != nil {
+		return nil, err
 	}
-	delete(rt.setups, addr)
-	rt.cachedTransportsLck.Unlock()
-	close(s.done)
-
-	return err
+	if conn == nil {
+		return nil, nil
+	}
+	return conn, nil
 }
 
 // getTransport sets up the transport for addr, and caches it, while the
@@ -687,7 +731,7 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 			utlsConfig.ServerName = rt.serverNameOverwrite
 		}
 
-		idleConnectionTimeout, http2IdleTimeout := rt.idleTimeouts()
+		_, http2IdleTimeout := rt.idleTimeouts()
 
 		t2 := http2.Transport{
 			Behavior:          rt.behavior.Clone(),
@@ -711,10 +755,15 @@ func (rt *roundTripper) cache(addr string, conn *tls.UConn) error {
 
 		if rt.transportOptions != nil {
 			t2.DisableCompression = rt.transportOptions.DisableCompression
+			if rt.transportOptions.NetworkObserver != nil {
+				t2.PingRTT = rt.transportOptions.NetworkObserver.HTTP2RTT
+			}
+
 			t2.ReadIdleTimeout = rt.transportOptions.ReadIdleTimeout
 			t2.PingTimeout = rt.transportOptions.PingTimeout
-			// The HTTP/2 transport reads ResponseHeaderTimeout and
-			// DisableKeepAlives from its HTTP/1 transport.
+			// The HTTP/2 transport reads ResponseHeaderTimeout, DisableKeepAlives,
+			// DisableCompression and ExpectContinueTimeout from its HTTP/1
+			// transport, and nothing else of it (upstream #294).
 			t2.SetT1(rt.buildHttp1Transport())
 		}
 
@@ -1193,12 +1242,9 @@ func (rt *roundTripper) dialTLSForWebsocket(ctx context.Context, network, addr s
 }
 
 // getDialTLSAddr is the address a request dials, and the key its transport is
-// cached under. A URL that names no port gets the default for its scheme.
-//
-// It used to get 443 either way, so http://host/ and https://host/ shared a
-// key: a redirect from an https page to a plain http URL found the HTTP/2
-// transport the first request had cached, and that transport refuses any
-// scheme but https before it dials.
+// cached under. A URL that names no port gets the default for its scheme
+// (upstream #272), and an internationalized host its punycode form, which
+// the transports dial (upstream #291).
 func (rt *roundTripper) getDialTLSAddr(req *http.Request) string {
 	host := dialHost(req.URL.Hostname())
 	if port := req.URL.Port(); port != "" {
@@ -1211,7 +1257,8 @@ func (rt *roundTripper) getDialTLSAddr(req *http.Request) string {
 	return net.JoinHostPort(host, "443")
 }
 
-// dialHost returns the punycode form of a non-ASCII host, as fhttp dials it.
+// dialHost is the IDNA ASCII form of a host that is not ASCII, as the
+// transports dial it, or the host as it is.
 func dialHost(host string) string {
 	if strings.IndexFunc(host, func(r rune) bool { return r > unicode.MaxASCII }) < 0 {
 		return host
@@ -1234,7 +1281,18 @@ func dialAddr(addr string) string {
 	return net.JoinHostPort(dialHost(host), port)
 }
 
-func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *TransportOptions, serverNameOverwrite string, insecureSkipVerify, withRandomTlsExtensionOrder, forceHttp1, disableHttp3, disableSessionTickets, enableH3Racing bool, certificatePins map[string][]string, badPinHandlerFunc BadPinHandlerFunc, certificatePinner CertificatePinner, disableIPV6, disableIPV4 bool, bandwidthTracker bandwidth.BandwidthTracker, proxyURL string, timeout time.Duration, dialer ...proxy.ContextDialer) (http.RoundTripper, error) {
+func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *TransportOptions, serverNameOverwrite string, insecureSkipVerify, withRandomTlsExtensionOrder, forceHttp1, disableHttp3, disableSessionTickets, enableH3Racing bool, certificatePins map[string][]string, badPinHandlerFunc BadPinHandlerFunc, certificatePinner CertificatePinner, disableIPV6, disableIPV4 bool, bandwidthTracker bandwidth.BandwidthTracker, proxyURL string, _ time.Duration, dialer ...proxy.ContextDialer) (http.RoundTripper, error) {
+	pol := clientProfile.GetBehavior()
+	if err := pol.Validate(); err != nil {
+		return nil, err
+	}
+	if (pol.Text("quic.tls_source") == "independent") != (clientProfile.GetQUICClientHelloSpec() != nil) {
+		return nil, fmt.Errorf("independent QUIC TLS source and factory must be selected together")
+	}
+	// A pinner of the caller's (upstream #278), else one of certificatePins.
+	// The client's timeout is passed for upstream's bound on HTTP/2 redials
+	// (#287), which this fork's need not: they dial within the context of the
+	// request they are for (dialTLSHTTP2).
 	pinner := certificatePinner
 	if pinner == nil {
 		var err error
@@ -1257,13 +1315,6 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 	}
 	if withQUICSessionResumption {
 		quicSessionCache = profileSessionCache(pol, "quic.session_cache_entries", "quic.session_cache_sessions_per_entry")
-	}
-
-	// A timeout of 0 lifts the deadline on the request, for long downloads. It
-	// does not mean a handshake may take forever.
-	http2RedialTimeout := timeout
-	if http2RedialTimeout <= 0 {
-		http2RedialTimeout = time.Duration(DefaultTimeoutSeconds) * time.Second
 	}
 
 	rt := &roundTripper{
@@ -1317,7 +1368,6 @@ func newRoundTripper(clientProfile profiles.ClientProfile, transportOptions *Tra
 		http3PseudoHeaderOrder:      clientProfile.GetHttp3PseudoHeaderOrder(),
 		http3SendGreaseFrames:       clientProfile.GetHttp3SendGreaseFrames(),
 		proxyURL:                    proxyURL,
-		http2RedialTimeout:          http2RedialTimeout,
 	}
 
 	// Create protocol racer if HTTP/3 racing is enabled
