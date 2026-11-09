@@ -1,7 +1,7 @@
 # tls-client for tls-forge
 
 A fork of [bogdanfinn/tls-client](https://github.com/bogdanfinn/tls-client)
-v1.16.0, on the branch `tls-forge`, for
+v1.16.0, with v1.18.0 merged (below), on the branch `tls-forge`, for
 [tls-forge](https://github.com/Sec-CH-Lemon/tls-forge). The base is
 `291b8f9e1b86cc35f210bdb6bf44770bf2660ab5`, the commit Go's module proxy and
 checksum database hold as v1.16.0: the tag was moved afterwards, to
@@ -19,6 +19,44 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   renamed imports back in order, `go mod edit -require=` each fork at its
   version, and `go mod tidy`.
 - At the base, `go vet` flags unkeyed fields in `profiles`, upstream as here.
+
+## Upstream v1.18.0 merged (2026-11-09)
+
+bogdanfinn's v1.16.0..v1.18.0 (26 commits, `1e15d52`; the master commits
+after it, 9e4b45e among them, are not: its query sanitizing percent-encodes
+`[ \ ] ^ ` { | }`, which Chrome sends as they are) is merged into this branch;
+`go 1.26.0` is what x/net 0.59 asks. Upstream's licence is BSD-3-Clause now
+(b29c4e3, the advertising clause gone). Much of upstream's work on the
+transport is this fork's own, made apart, and the fork's is kept: a reconnect
+that builds no transport (#270, S02), dials and redials bound by the
+request's context (#287, #292, S01: no `http2RedialTimeout`, the HTTP/2
+transport dials within the request's context), a race that dispatches one
+request on the winner and makes nothing it does not keep (da88afc's leaks,
+S03/A5), HTTP/3 settings from the profile (5899e72). Otherwise:
+
+- **Taken**: an internationalized host keyed and dialed in its punycode form,
+  a plain http URL keyed by port 80 (`getDialTLSAddr`, `dialHost`; #291,
+  #272); the connection a request's setup stashed let go of when its
+  transport refused the request before dialing (`discardStash`, #291: a
+  server's close_notify reads as alive to `connected`), and the requests
+  waiting for a setup let go of whatever ends it, a dialer's panic too (#291);
+  `Close` on a client and its round tripper (da88afc); a CONNECT over HTTP/1.1
+  to a proxy bound by the earlier of the client's timeout, none for 0, and the
+  request's deadline, ended with it (#292), its header order looked up in
+  lower case (#274); an HTTPS proxy's TCP connection by the client's dialer
+  (#292); `WithCertificatePinner` (#278); `ReadIdleTimeout`, `PingTimeout`,
+  `ResponseHeaderTimeout` (#282, #294), the HTTP/2 transport given its HTTP/1
+  transport by fhttp's `SetT1`, of which fhttp's http2 reads only
+  DisableCompression, DisableKeepAlives, ExpectContinueTimeout and
+  ResponseHeaderTimeout; the trust anchors package and its Chrome Root Store
+  list (#277) for the presets, which tls-forge's own catalogue does not read.
+- utls reads trust_anchors into a `TrustAnchorsExtension` since its v1.8.2:
+  the Chrome QUIC hello keeps it as it kept the `GenericExtension`
+  (`chrome_quic.go`, `TestAQUICHelloKeepsTrustAnchorsAsTheyAreRead`).
+- **Tests** reach no network: upstream's trust anchor tests on the wire and
+  against a server go to owned peers, as this fork's did, and the generator
+  test against the live Chrome Root Store is left out. Upstream's setup and
+  stash tests read this fork's `getTransport`, which returns no connection.
 
 ## Patches
 

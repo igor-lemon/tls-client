@@ -10,7 +10,7 @@ import (
 
 func TestTheRoundTripperTakesItsProfilesWindowUpdateDelay(t *testing.T) {
 	rt, err := newRoundTripper(profiles.Chrome_133.WithWindowUpdateDelay(5*time.Second), nil, "", false, false, false,
-		false, false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+		false, false, false, nil, nil, nil, false, false, nil, "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}

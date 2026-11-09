@@ -9,7 +9,7 @@ import (
 
 func TestTheRoundTripperTakesItsProfilesMaxHeaderFramePayload(t *testing.T) {
 	rt, err := newRoundTripper(profiles.Chrome_133.WithMaxHeaderFramePayload(16374), nil, "", false, false, false,
-		false, false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+		false, false, false, nil, nil, nil, false, false, nil, "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}

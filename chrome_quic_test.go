@@ -157,6 +157,36 @@ func TestAQUICHelloOffersALPSAsItsProfileSays(t *testing.T) {
 	}
 }
 
+// TestAQUICHelloKeepsTrustAnchorsAsTheyAreRead: utls reads trust_anchors
+// into a TrustAnchorsExtension since v1.8.2, and the QUIC hello keeps it as
+// it kept the GenericExtension before, whatever the profile says of 51764.
+func TestAQUICHelloKeepsTrustAnchorsAsTheyAreRead(t *testing.T) {
+	ids := [][]byte{{1, 2}, {3}}
+	for _, keep := range []bool{true, false} {
+		p := alpsPolicy(t, 17613)
+		if !keep {
+			p["quic.preserve_extensions"], _ = json.Marshal([]uint64{0, 65037, 27, 45, 10, 13, 51, 16, 43, 41, 17613})
+		}
+		id := tls.ClientHelloID{Client: "test", Version: "1", SpecFactory: func() (tls.ClientHelloSpec, error) {
+			return tls.ClientHelloSpec{Extensions: []tls.TLSExtension{&tls.SNIExtension{},
+				&tls.TrustAnchorsExtension{TrustAnchorIDs: ids}}}, nil
+		}}
+		spec, err := profileQUICSpec(id, p)([]byte{1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var kept *tls.TrustAnchorsExtension
+		for _, e := range spec.Extensions {
+			if e, ok := e.(*tls.TrustAnchorsExtension); ok {
+				kept = e
+			}
+		}
+		if (kept != nil) != keep || kept != nil && len(kept.TrustAnchorIDs) != len(ids) {
+			t.Errorf("preserved=%v: trust anchors kept %v", keep, kept)
+		}
+	}
+}
+
 func TestAQUICHandshakeOfALPSSaysTheClientsEmptySettings(t *testing.T) {
 	cert := coalescingCert(t, "a.test")
 	pol := alpsPolicy(t, 17613)

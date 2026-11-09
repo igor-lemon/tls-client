@@ -35,7 +35,7 @@ func RemoveSession(sessionId string) {
 	if !ok {
 		return
 	}
-	client.CloseIdleConnections()
+	client.Close()
 
 	delete(clients, sessionId)
 }
@@ -46,7 +46,7 @@ func ClearSessionCache() {
 	defer clientsLock.Unlock()
 
 	for _, client := range clients {
-		client.CloseIdleConnections()
+		client.Close()
 	}
 
 	clients = make(map[string]tls_client.HttpClient)
@@ -356,6 +356,10 @@ func getTlsClient(requestInput RequestInput, sessionId string, withSession bool)
 		options = append(options, tls_client.WithDisableHttp3())
 	}
 
+	if requestInput.DisableSessionTickets {
+		options = append(options, tls_client.WithDisableSessionTickets())
+	}
+
 	if requestInput.WithProtocolRacing {
 		options = append(options, tls_client.WithProtocolRacing())
 	}
@@ -379,6 +383,9 @@ func getTlsClient(requestInput RequestInput, sessionId string, withSession bool)
 			WriteBufferSize:        requestInput.TransportOptions.WriteBufferSize,
 			ReadBufferSize:         requestInput.TransportOptions.ReadBufferSize,
 			IdleConnTimeout:        requestInput.TransportOptions.IdleConnTimeout,
+			ReadIdleTimeout:        requestInput.TransportOptions.ReadIdleTimeout,
+			PingTimeout:            requestInput.TransportOptions.PingTimeout,
+			ResponseHeaderTimeout:  requestInput.TransportOptions.ResponseHeaderTimeout,
 			// RootCAs:                requestInput.TransportOptions.RootCAs,
 		}
 
@@ -457,7 +464,7 @@ func getTlsClient(requestInput RequestInput, sessionId string, withSession bool)
 }
 
 func getCustomTlsClientProfile(customClientDefinition *CustomTlsClient) (tls.ClientHelloID, map[http2.SettingID]uint32, []http2.SettingID, []string, uint32, []http2.Priority, *http2.PriorityParam, uint32, bool, map[uint64]uint64, []uint64, uint32, []string, bool, error) {
-	specFactory, err := tls_client.GetSpecFactoryFromJa3String(customClientDefinition.Ja3String, customClientDefinition.SupportedSignatureAlgorithms, customClientDefinition.SupportedDelegatedCredentialsAlgorithms, customClientDefinition.SupportedVersions, customClientDefinition.KeyShareCurves, customClientDefinition.ALPNProtocols, customClientDefinition.ALPSProtocols, customClientDefinition.ECHCandidateCipherSuites.Translate(), customClientDefinition.ECHCandidatePayloads, customClientDefinition.CertCompressionAlgos, customClientDefinition.RecordSizeLimit)
+	specFactory, err := tls_client.GetSpecFactoryFromJa3String(customClientDefinition.Ja3String, customClientDefinition.SupportedSignatureAlgorithms, customClientDefinition.SupportedDelegatedCredentialsAlgorithms, customClientDefinition.SupportedVersions, customClientDefinition.KeyShareCurves, customClientDefinition.ALPNProtocols, customClientDefinition.ALPSProtocols, customClientDefinition.ECHCandidateCipherSuites.Translate(), customClientDefinition.ECHCandidatePayloads, customClientDefinition.CertCompressionAlgos, customClientDefinition.RecordSizeLimit, customClientDefinition.TrustAnchorsPayload)
 	if err != nil {
 		return tls.ClientHelloID{}, nil, nil, nil, 0, nil, nil, 0, false, nil, nil, 0, nil, false, err
 	}

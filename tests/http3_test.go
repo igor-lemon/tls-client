@@ -18,7 +18,6 @@ func TestHTTP3(t *testing.T) {
 		tls_client.WithInsecureSkipVerify(),
 		tls_client.WithTimeoutSeconds(30),
 		tls_client.WithProtocolRacing(),
-		tls_client.WithDebug(),
 	}
 
 	client, err := tls_client.NewHttpClient(nil, options...)
@@ -58,7 +57,6 @@ func TestDisableHTTP3(t *testing.T) {
 		tls_client.WithInsecureSkipVerify(),
 		tls_client.WithTimeoutSeconds(30),
 		tls_client.WithDisableHttp3(),
-		tls_client.WithDebug(),
 	}
 
 	client, err := tls_client.NewHttpClient(nil, options...)

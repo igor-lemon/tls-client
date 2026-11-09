@@ -699,7 +699,9 @@ func (rt *roundTripper) connectTCP(req *http.Request, addr string) error {
 		<-s.done
 		return nil
 	case !cached:
-		return rt.setUp(req, addr, s)
+		// Left for whichever request takes it up (leftUnused), not discarded.
+		_, err := rt.setUp(req, addr, s)
+		return err
 	}
 	conn, err := rt.discover(req, addr)
 	if err != nil {

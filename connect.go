@@ -326,6 +326,12 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 		}
 	}
 
+	// The order is looked up by lower-cased name, as for every other request,
+	// so a capitalised order would silently fall back to alphabetical.
+	if order, ok := req.Header[http.HeaderOrderKey]; ok {
+		req.Header[http.HeaderOrderKey] = allToLower(order)
+	}
+
 	connectHttp2 := func(rawConn net.Conn, h2clientConn *http2.ClientConn) (net.Conn, error) {
 		req.Proto = "HTTP/2.0"
 		req.ProtoMajor = 2
@@ -352,23 +358,37 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 		req.ProtoMajor = 1
 		req.ProtoMinor = 1
 
-		deadline := time.Now().Add(c.Timeout)
-		err := rawConn.SetDeadline(deadline)
-		if err != nil {
+		// Use the earlier of the client timeout (0 means none) and the ctx deadline.
+		var deadline time.Time
+		if c.Timeout > 0 {
+			deadline = time.Now().Add(c.Timeout)
+		}
+		if d, ok := ctx.Deadline(); ok && (deadline.IsZero() || d.Before(deadline)) {
+			deadline = d
+		}
+		if err := rawConn.SetDeadline(deadline); err != nil {
 			_ = rawConn.Close()
 			return nil, err
 		}
-		// And no longer than the request is wanted.
-		stop := context.AfterFunc(ctx, func() { _ = rawConn.SetDeadline(time.Now()) })
 
-		err = req.Write(rawConn)
+		// Abort when ctx is cancelled.
+		stop := context.AfterFunc(ctx, func() { _ = rawConn.SetDeadline(time.Now()) })
+		fail := func(err error) (net.Conn, error) {
+			stop()
+			_ = rawConn.Close()
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			return nil, err
+		}
+
+		err := req.Write(rawConn)
 		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				c.logger.Error("deadline exceeded while trying to write proxy connection")
 			}
 
-			_ = rawConn.Close()
-			return nil, err
+			return fail(err)
 		}
 
 		resp, err := http.ReadResponse(bufio.NewReader(rawConn), req)
@@ -377,18 +397,18 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 				c.logger.Error("deadline exceeded while trying to read proxy connection")
 			}
 
-			_ = rawConn.Close()
-			return nil, err
+			return fail(err)
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			_ = rawConn.Close()
-			return nil, errors.New("Proxy responded with non 200 code: " + resp.Status)
+			return fail(errors.New("Proxy responded with non 200 code: " + resp.Status))
 		}
 
-		// A request let go of as the proxy answered may find the deadline
-		// past: it is no longer wanted.
-		stop()
+		if !stop() {
+			_ = rawConn.Close()
+			return nil, ctx.Err()
+		}
+
 		rawConn.SetDeadline(time.Time{})
 
 		return rawConn, nil
@@ -439,10 +459,10 @@ func (c *connectDialer) DialContext(ctx context.Context, network, address string
 				NextProtos: []string{"h2", "http/1.1"},
 				ServerName: c.ProxyUrl.Hostname(),
 			}
-			// As tls.Dialer dials with no dialer of its own, the TCP
-			// connection through the wrapper.
+			// The TCP connection with the client's dialer (upstream #292),
+			// through the wrapper.
 			began := time.Now()
-			var tcp net.Dialer
+			tcp := c.Dialer
 			dialed, err := tcp.DialContext(ctx, network, c.ProxyUrl.Host)
 			if err != nil {
 				return nil, err

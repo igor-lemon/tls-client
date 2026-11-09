@@ -21,7 +21,7 @@ type Websocket struct {
 //
 //	// Create HTTP client with ForceHttp1 (required for WebSocket!)
 //	client, _ := NewHttpClient(nil,
-//	    WithClientProfile(profiles.Chrome_133),
+//	    WithClientProfile(profiles.Chrome_150),
 //	    WithForceHttp1(),
 //	)
 //
@@ -57,6 +57,7 @@ func NewWebsocket(logger Logger, options ...WebsocketOption) (*Websocket, error)
 		WriteBufferSize:   config.writeBufferSize,
 		NetDialTLSContext: config.tlsClient.GetTLSDialer(),
 		NetDialContext:    config.tlsClient.GetDialer().DialContext,
+		EnableCompression: config.enableCompression,
 	}
 
 	return &Websocket{

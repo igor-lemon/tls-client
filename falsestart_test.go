@@ -64,7 +64,7 @@ func heldServer(t *testing.T, protocols ...string) (string, chan *heldConn) {
 func falseStartingTripper(t *testing.T, on bool) *roundTripper {
 	t.Helper()
 	rt, err := newRoundTripper(profiles.Chrome_133.WithFalseStart(on), nil, "", true, false, false, false, false, false,
-		nil, nil, false, false, bandwidth.NewNopeTracker(), "", &net.Dialer{})
+		nil, nil, nil, false, false, bandwidth.NewNopeTracker(), "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}

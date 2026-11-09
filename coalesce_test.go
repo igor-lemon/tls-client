@@ -350,7 +350,7 @@ func TestAProxySetAnewKeepsConnectionsShared(t *testing.T) {
 
 func TestAHostIsAdoptedByTheSharedTransportUnlessItHasItsOwn(t *testing.T) {
 	transport, err := newRoundTripper(profiles.Chrome_133, nil, "", false, false, false, false,
-		false, false, nil, nil, false, false, nil, "", &net.Dialer{})
+		false, false, nil, nil, nil, false, false, nil, "", 0, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func TestConnectionsAreSharedOnlyWhenTheyMayBe(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			transport, err := newRoundTripper(profiles.Chrome_133, tc.options, tc.server, false, false, false, false,
-				false, tc.racing, nil, nil, false, false, nil, tc.proxy, &net.Dialer{})
+				false, tc.racing, nil, nil, nil, false, false, nil, tc.proxy, 0, &net.Dialer{})
 			if err != nil {
 				t.Fatal(err)
 			}

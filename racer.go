@@ -262,6 +262,9 @@ func (pr *protocolRacer) getHTTP3Config() *http3Config {
 	}
 }
 
+// racingAttempts is the number of protocols raced against each other, HTTP/3 and HTTP/2.
+const racingAttempts = 2
+
 type racingResult struct {
 	protocol  string
 	transport http.RoundTripper

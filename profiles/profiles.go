@@ -8,6 +8,7 @@ import (
 
 	"github.com/igor-lemon/fhttp/http2"
 	"github.com/igor-lemon/fhttp/http2/hpack"
+	"github.com/igor-lemon/tls-client/trust_anchors"
 	tls "github.com/igor-lemon/utls"
 )
 
@@ -270,3 +271,11 @@ func (c ClientProfile) WithQUICClientHelloSpec(factory QUICClientHelloFactory) C
 	return c
 }
 func (c ClientProfile) GetQUICClientHelloSpec() QUICClientHelloFactory { return c.quicClientHelloSpec }
+
+// BuildTrustAnchorsPayload turns a captured trust_anchors payload into the data
+// for the extension.
+//
+// Deprecated: use trust_anchors.BuildPayload
+func BuildTrustAnchorsPayload(capture string) ([]byte, error) {
+	return trust_anchors.BuildPayload(capture)
+}
