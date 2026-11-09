@@ -1,10 +1,10 @@
 # tls-client for tls-forge
 
 A fork of [bogdanfinn/tls-client](https://github.com/bogdanfinn/tls-client)
-v1.16.0, on the branch `tls-forge`, for
-[tls-forge](https://github.com/Sec-CH-Lemon/tls-forge). The base is
-`291b8f9e1b86cc35f210bdb6bf44770bf2660ab5`, the commit Go's module proxy and
-checksum database hold as v1.16.0: the tag was moved afterwards, to
+v1.16.0, its patches laid over v1.18.0 since 2026-11-10 (below), on the branch
+`tls-forge`, for [tls-forge](https://github.com/Sec-CH-Lemon/tls-forge). The
+base is `291b8f9e1b86cc35f210bdb6bf44770bf2660ab5`, the commit Go's module
+proxy and checksum database hold as v1.16.0: the tag was moved afterwards, to
 `23b44420627619a30d09be5b6250e6cf2e350cf2`, with other code.
 
 - The module is `github.com/igor-lemon/tls-client`, and it imports the forks
@@ -19,6 +19,89 @@ checksum database hold as v1.16.0: the tag was moved afterwards, to
   renamed imports back in order, `go mod edit -require=` each fork at its
   version, and `go mod tidy`.
 - At the base, `go vet` flags unkeyed fields in `profiles`, upstream as here.
+
+## The branch: bogdanfinn's release, then the patches (2026-11-10)
+
+`git log --first-parent v1.18.0..tls-forge` lists the branch as it is laid
+out: bogdanfinn's v1.18.0 (`1e15d52f2a65`), then "Rename the module ...", the
+rename above, made by a script (the five forks' module paths in every Go file
+and go.mod, imports sorted), then this fork's patches, one commit a change,
+oldest first, as this file tells them. A merge on top, `-s ours`, joins the
+branch's earlier head: the branch only ever moves forward, every commit a
+published pin names stays in it, and the merge's tree is the last patch's.
+
+On 2026-11-10 the history to then (87 patches written over v1.16.0, and the
+merge of v1.18.0 of 2026-11-09) was laid over v1.18.0 so: each patch
+cherry-picked over the renamed release, a conflict resolved toward the merge's
+tree, and what the merge itself had resolved put into the patch it belongs to
+(the section on v1.18.0 says what was decided). The last patch's tree is the
+merge's, byte for byte, but for this section. Not every commit builds:
+bogdanfinn's v1.18.0 rewrote RoundTrip's setup (getTransport hands back the
+connection, #291) and how the HTTP/2 transport is made (SetT1, Close), and the
+patches from "A request to another host on an HTTP/2 connection that fits it"
+on were written against the shape before; the patch "Adapt to
+bogdanfinn/tls-client v1.18.0", before this file's last, brings them together
+as the merge had. So the series builds at its first seven patches and from
+that one on, the ones between do not build on their own over v1.18.0 (each did
+over v1.16.0); go vet reports bogdanfinn's own unkeyed composite literals in
+profiles at every commit (go vet -composites=false passes at the last).
+
+To take another release of bogdanfinn's, with tls-forge's
+`scripts/fork_sync.py`, in a clone (this checkout is not touched):
+
+    python3 scripts/fork_sync.py start ../forks/tls-client vX.Y.Z --work /tmp/tls-client-sync
+    # a conflict stops it: resolve it, git add, then
+    python3 scripts/fork_sync.py continue --work /tmp/tls-client-sync
+    # what has to change for it to build, made in the clone, goes into the
+    # patch whose lines it touches (or the one --to "SUBJECT=PATH" names)
+    python3 scripts/fork_sync.py absorb --work /tmp/tls-client-sync
+    python3 scripts/fork_sync.py check --work /tmp/tls-client-sync --with ...
+    python3 scripts/fork_sync.py finish --work /tmp/tls-client-sync -m "Patches laid over vX.Y.Z"
+
+then `git merge --ff-only` of the clone's head on this branch. A conflict that
+only moves an import the rename changed settles itself; git rerere keeps the
+others; go.mod is merged module by module (the higher version) and go.sum by
+union. The forks go in tls-forge's order: utls, fhttp, websocket and
+quic-go-utls, tls-client; `check --with` builds a fork against the new series
+of the ones before it.
+
+## Upstream v1.18.0 merged (2026-11-09)
+
+bogdanfinn's v1.16.0..v1.18.0 (26 commits, `1e15d52`; the master commits
+after it, 9e4b45e among them, are not: its query sanitizing percent-encodes
+`[ \ ] ^ ` { | }`, which Chrome sends as they are) is merged into this branch;
+`go 1.26.0` is what x/net 0.59 asks. Upstream's licence is BSD-3-Clause now
+(b29c4e3, the advertising clause gone). Much of upstream's work on the
+transport is this fork's own, made apart, and the fork's is kept: a reconnect
+that builds no transport (#270, S02), dials and redials bound by the
+request's context (#287, #292, S01: no `http2RedialTimeout`, the HTTP/2
+transport dials within the request's context), a race that dispatches one
+request on the winner and makes nothing it does not keep (da88afc's leaks,
+S03/A5), HTTP/3 settings from the profile (5899e72). Otherwise:
+
+- **Taken**: an internationalized host keyed and dialed in its punycode form,
+  a plain http URL keyed by port 80 (`getDialTLSAddr`, `dialHost`; #291,
+  #272); the connection a request's setup stashed let go of when its
+  transport refused the request before dialing (`discardStash`, #291: a
+  server's close_notify reads as alive to `connected`), and the requests
+  waiting for a setup let go of whatever ends it, a dialer's panic too (#291);
+  `Close` on a client and its round tripper (da88afc); a CONNECT over HTTP/1.1
+  to a proxy bound by the earlier of the client's timeout, none for 0, and the
+  request's deadline, ended with it (#292), its header order looked up in
+  lower case (#274); an HTTPS proxy's TCP connection by the client's dialer
+  (#292); `WithCertificatePinner` (#278); `ReadIdleTimeout`, `PingTimeout`,
+  `ResponseHeaderTimeout` (#282, #294), the HTTP/2 transport given its HTTP/1
+  transport by fhttp's `SetT1`, of which fhttp's http2 reads only
+  DisableCompression, DisableKeepAlives, ExpectContinueTimeout and
+  ResponseHeaderTimeout; the trust anchors package and its Chrome Root Store
+  list (#277) for the presets, which tls-forge's own catalogue does not read.
+- utls reads trust_anchors into a `TrustAnchorsExtension` since its v1.8.2:
+  the Chrome QUIC hello keeps it as it kept the `GenericExtension`
+  (`chrome_quic.go`, `TestAQUICHelloKeepsTrustAnchorsAsTheyAreRead`).
+- **Tests** reach no network: upstream's trust anchor tests on the wire and
+  against a server go to owned peers, as this fork's did, and the generator
+  test against the live Chrome Root Store is left out. Upstream's setup and
+  stash tests read this fork's `getTransport`, which returns no connection.
 
 ## Patches
 
