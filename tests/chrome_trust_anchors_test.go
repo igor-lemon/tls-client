@@ -30,6 +30,15 @@ const chromeProfileName = "Chrome_152_PSK"
 
 var chromeProfile = profiles.Chrome_152_PSK
 
+// wireProfiles are the profiles the wire tests run over. [tls-client fork]
+// Both Chrome 152 profiles, the one that offers a PSK and the one that does
+// not, as the fork's tests did before v1.18.0 took them down to one
+// (F09-101 to F09-108 are witnessed by each).
+var wireProfiles = []struct {
+	name    string
+	profile profiles.ClientProfile
+}{{"Chrome_152", profiles.Chrome_152}, {"Chrome_152_PSK", profiles.Chrome_152_PSK}}
+
 // chromeRootStore39Capture is the payload stable Chrome 152.0.7977.64 on
 // Android sent, from the "Unknown extension 51764" data field of a tls.peet.ws
 // fingerprint. It carries Chrome Root Store 39 and no MTC anchors, so it holds
@@ -193,91 +202,95 @@ func TestChromeTrustAnchorsOnTheWire(t *testing.T) {
 	peetApiEndpoint := newOwnedFingerprintPeer(t)
 	capture := chromeCapture(t)
 
-	var ja4Values []string
+	for _, wire := range wireProfiles {
+		t.Run(wire.name, func(t *testing.T) {
+			var ja4Values []string
 
-	for run := 1; run <= 2; run++ {
-		t.Run(fmt.Sprintf("run_%d", run), func(t *testing.T) {
-			options := []tls_client.HttpClientOption{
-				skipPeetCertVerify,
-				tls_client.WithServerNameOverwrite("owned.example"),
-				tls_client.WithClientProfile(chromeProfile),
-				tls_client.WithTimeoutSeconds(120),
+			for run := 1; run <= 2; run++ {
+				t.Run(fmt.Sprintf("run_%d", run), func(t *testing.T) {
+					options := []tls_client.HttpClientOption{
+						skipPeetCertVerify,
+						tls_client.WithServerNameOverwrite("owned.example"),
+						tls_client.WithClientProfile(wire.profile),
+						tls_client.WithTimeoutSeconds(120),
+					}
+
+					client, err := tls_client.NewHttpClient(nil, options...)
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(client.CloseIdleConnections)
+
+					req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					req.Header = defaultHeader
+
+					resp, err := client.Do(req)
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					defer resp.Body.Close()
+
+					readBytes, err := io.ReadAll(resp.Body)
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					tlsApiResponse := TlsApiResponse{}
+					if err := json.Unmarshal(readBytes, &tlsApiResponse); err != nil {
+						t.Fatal(err)
+					}
+
+					// tls.peet.ws reports the extension as "Unknown extension 51764"
+					// today and may name it once the draft lands, so match the code
+					// point in decimal and not the name around it.
+					data := ""
+					code := strconv.Itoa(trustAnchorsExtension)
+
+					for _, extension := range tlsApiResponse.TLS.Extensions {
+						if strings.Contains(extension.Name, code) {
+							data = extension.Data
+							break
+						}
+					}
+
+					if data == "" {
+						t.Fatalf("%s sent no trust_anchors extension", wire.name)
+					}
+
+					payload, err := hex.DecodeString(data)
+					if err != nil {
+						t.Fatalf("%s sent %q, which is not hex", wire.name, data)
+					}
+
+					checkTrustAnchorIDs(t, wire.name, capture, payload)
+
+					// The wire payload must be the one the profile holds.
+					if want := hex.EncodeToString(trustAnchorsFromSpec(t, wire.profile)); data != want {
+						t.Errorf("%s sent %s, the profile holds %s", wire.name, data, want)
+					}
+
+					if tlsApiResponse.TLS.Ja4 == "" {
+						t.Fatalf("%s got no ja4 value from %s", wire.name, peetApiEndpoint)
+					}
+
+					ja4Values = append(ja4Values, tlsApiResponse.TLS.Ja4)
+				})
 			}
 
-			client, err := tls_client.NewHttpClient(nil, options...)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(client.CloseIdleConnections)
-
-			req, err := http.NewRequest(http.MethodGet, peetApiEndpoint, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			req.Header = defaultHeader
-
-			resp, err := client.Do(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			defer resp.Body.Close()
-
-			readBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			tlsApiResponse := TlsApiResponse{}
-			if err := json.Unmarshal(readBytes, &tlsApiResponse); err != nil {
-				t.Fatal(err)
-			}
-
-			// tls.peet.ws reports the extension as "Unknown extension 51764"
-			// today and may name it once the draft lands, so match the code
-			// point in decimal and not the name around it.
-			data := ""
-			code := strconv.Itoa(trustAnchorsExtension)
-
-			for _, extension := range tlsApiResponse.TLS.Extensions {
-				if strings.Contains(extension.Name, code) {
-					data = extension.Data
+			// JA4 counts extensions but not their contents, so the payload must not
+			// move the fingerprint.
+			for _, value := range ja4Values {
+				if value != ja4Values[0] {
+					t.Errorf("%s ja4 changed between connections: %v", wire.name, ja4Values)
 					break
 				}
 			}
-
-			if data == "" {
-				t.Fatalf("%s sent no trust_anchors extension", chromeProfileName)
-			}
-
-			payload, err := hex.DecodeString(data)
-			if err != nil {
-				t.Fatalf("%s sent %q, which is not hex", chromeProfileName, data)
-			}
-
-			checkTrustAnchorIDs(t, chromeProfileName, capture, payload)
-
-			// The wire payload must be the one the profile holds.
-			if want := hex.EncodeToString(trustAnchorsFromSpec(t, chromeProfile)); data != want {
-				t.Errorf("%s sent %s, the profile holds %s", chromeProfileName, data, want)
-			}
-
-			if tlsApiResponse.TLS.Ja4 == "" {
-				t.Fatalf("%s got no ja4 value from %s", chromeProfileName, peetApiEndpoint)
-			}
-
-			ja4Values = append(ja4Values, tlsApiResponse.TLS.Ja4)
 		})
-	}
-
-	// JA4 counts extensions but not their contents, so the payload must not
-	// move the fingerprint.
-	for _, value := range ja4Values {
-		if value != ja4Values[0] {
-			t.Errorf("%s ja4 changed between connections: %v", chromeProfileName, ja4Values)
-			break
-		}
 	}
 }
 
@@ -291,36 +304,40 @@ func TestChromeTrustAnchorsAreAcceptedByAServer(t *testing.T) {
 	// [tls-client fork] an owned verifying peer, not Google's: tests reach no
 	// network.
 	generate204Endpoint, roots := newOwnedVerifiedTLSPeer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
-	client, err := tls_client.NewHttpClient(nil,
-		tls_client.WithClientProfile(chromeProfile),
-		tls_client.WithTimeoutSeconds(30),
-		tls_client.WithTransportOptions(&tls_client.TransportOptions{RootCAs: roots}),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.CloseIdleConnections)
+	for _, wire := range wireProfiles {
+		t.Run(wire.name, func(t *testing.T) {
+			client, err := tls_client.NewHttpClient(nil,
+				tls_client.WithClientProfile(wire.profile),
+				tls_client.WithTimeoutSeconds(30),
+				tls_client.WithTransportOptions(&tls_client.TransportOptions{RootCAs: roots}),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(client.CloseIdleConnections)
 
-	req, err := http.NewRequest(http.MethodGet, generate204Endpoint, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+			req, err := http.NewRequest(http.MethodGet, generate204Endpoint, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	req.Header = defaultHeader
+			req.Header = defaultHeader
 
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("%s could not reach %s: %s", chromeProfileName, generate204Endpoint, err)
-	}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s could not reach %s: %s", wire.name, generate204Endpoint, err)
+			}
 
-	defer resp.Body.Close()
+			defer resp.Body.Close()
 
-	if _, err := io.ReadAll(resp.Body); err != nil {
-		t.Fatalf("%s could not read the body: %s", chromeProfileName, err)
-	}
+			if _, err := io.ReadAll(resp.Body); err != nil {
+				t.Fatalf("%s could not read the body: %s", wire.name, err)
+			}
 
-	if resp.StatusCode != http.StatusNoContent {
-		t.Errorf("%s got status %d from %s, expected %d", chromeProfileName, resp.StatusCode, generate204Endpoint, http.StatusNoContent)
+			if resp.StatusCode != http.StatusNoContent {
+				t.Errorf("%s got status %d from %s, expected %d", wire.name, resp.StatusCode, generate204Endpoint, http.StatusNoContent)
+			}
+		})
 	}
 }
 

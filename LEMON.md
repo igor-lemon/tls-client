@@ -102,6 +102,10 @@ S03/A5), HTTP/3 settings from the profile (5899e72). Otherwise:
   against a server go to owned peers, as this fork's did, and the generator
   test against the live Chrome Root Store is left out. Upstream's setup and
   stash tests read this fork's `getTransport`, which returns no connection.
+  Those on the wire and against a server run over both Chrome 152 profiles,
+  with a PSK and without (`wireProfiles`), as this fork's did before v1.18.0
+  took them down to one: tls-forge's F09 gate holds each to its own
+  subtest (F09-101 to F09-108).
 
 ## Patches
 
