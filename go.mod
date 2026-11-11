@@ -5,10 +5,10 @@ go 1.27
 require (
 	github.com/bdandy/go-socks4 v1.2.3
 	github.com/google/uuid v1.6.0
-	github.com/igor-lemon/fhttp v0.6.10-0.20261110135914-5d69bd7c659e
-	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261110135948-d14b99d415b6
+	github.com/igor-lemon/fhttp v0.6.10-0.20261111153518-df863b5b1da8
+	github.com/igor-lemon/quic-go-utls v1.0.10-utls.0.20261111154716-93561c872bf3
 	github.com/igor-lemon/utls v1.7.8-barnius.0.20261109230756-6be0e3da4e2d
-	github.com/igor-lemon/websocket v1.5.6-barnius.0.20261110135946-205060dc757d
+	github.com/igor-lemon/websocket v1.5.6-barnius.0.20261111154712-786a1021445c
 	github.com/quic-go/qpack v0.6.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tam7t/hpkp v0.0.0-20160821193359-2b70b4024ed5
